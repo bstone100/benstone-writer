@@ -26,6 +26,7 @@
   import { buildInputRules } from "./editor/inputrules";
   import { bridge } from "./editor/bridge";
   import { bubbleState, type BubbleState } from "./editor/bubble";
+  import { slashState, type SlashState } from "./editor/slash";
   import EditorOverlay from "./editor/EditorOverlay.svelte";
   import { placeholder } from "./placeholder";
   import { vtName } from "./motion";
@@ -38,7 +39,7 @@
   let bodyEl: HTMLDivElement;
   let view = $state<EditorView | undefined>(undefined);
   // Transient floating-UI state the bridge plugin writes and the overlay reads.
-  let ui = $state<{ bubble: BubbleState }>({ bubble: null });
+  let ui = $state<{ bubble: BubbleState; slash: SlashState }>({ bubble: null, slash: null });
 
   // The title is a textarea, not an input, so a long title WRAPS within the
   // measure instead of clipping. Auto-grow keeps it chromeless (no scrollbar,
@@ -95,7 +96,11 @@
             keymap(baseKeymap),
             buildInputRules(schema), // markdown-as-you-type (## , - , > , ``` , ---)
             placeholder("Begin writing…"),
-            bridge((v) => (ui.bubble = bubbleState(v.state))), // PM → Svelte overlay
+            bridge((v) => {
+              // PM → Svelte overlay (bubble + slash), one write per transaction.
+              ui.bubble = bubbleState(v.state);
+              ui.slash = slashState(v.state);
+            }),
             plugin, // the Automerge ↔ ProseMirror sync plugin (must be last)
           ],
         }),
