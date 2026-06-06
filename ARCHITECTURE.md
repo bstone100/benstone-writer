@@ -282,8 +282,22 @@ Your inline-edit requirement actually *tightens* the path principle rather than 
 - **Auth-gated structurally:** the editor bundle and the authenticated sync socket are only loaded behind the session check; an unauthed reader can neither fetch the editor chunk nor open the socket. The Edit affordance is gated server-side.
 - **Re-publish:** inline edits land in the doc (autosaved, in history); pushing them to readers is the explicit **Publish** (re-render `published/{slug}`, notify the reader-feed). ⚠️ open UX call: for an already-live article, auto-republish small fixes, or require a Publish tap? (I lean: a one-tap "publish this fix," so readers never catch a half-finished edit.)
 
-### 11.6 — UI surfaces (the spec was light here; these are the actual surfaces)
-**Reader** (SSR, live-updating, + your inline Edit) · **Editor** (invisible Tiptap; slash/bubble for light structure; focus mode; autosave) · **History & branches** (the "continue from here" scrubber + branch picker, §8) · **Library** (your doc list — a `collection('documents/*')`) · **Command palette** (⌘K, keyboard-first — the Linear feel) · **Auth** (passkey unlock). All built only from `ui/` over the path API; motion per §12.
+### 11.6 — Information architecture: pages, routes, layout
+**Public reading plane** (SSR, edge-cached, zero editor JS):
+- `/` — home: the identity line + recent writing (proof-forward).
+- `/writing` — index of all published essays.
+- `/writing/{slug}` — an essay. The inline **Edit** affordance appears here when you're authed (§11.5); the document's path *is* its URL, so there's no separate edit route.
+- `/work`, `/about`, `/contact` — supporting pages (carried over / trimmed from the current site).
+
+**Private studio** (client islands, auth-gated, never SSR'd, loaded only behind the session check):
+- `/studio` — **library:** your documents, drafts + published — a `collection('documents/*')`.
+- **History & branches** — the "continue from here" scrubber + branch picker (§8), as an overlay on the document.
+- **Command palette (⌘K)** — global overlay: navigation + actions (new, publish, switch branch). Keyboard-first (the Linear feel).
+- **Auth** — passkey/Face-ID unlock.
+
+**Per-route split** (drives §9 + §14): public routes are SSR + edge-cached; studio surfaces are client islands; the editor bundle + sync socket never load for an unauthed reader.
+
+**Global layout — one skeleton, everywhere:** a thin **header** (brand + nav; on `/writing/{slug}` it also carries the authed Edit/Publish controls), a single centered **prose measure** as the spine — *reading and writing share the exact same column*, which is what makes inline-edit feel like the page simply becoming editable — and transient **overlays** (command palette, history). Navigating between these surfaces is exactly where §12's path-derived motion lives.
 
 ### 11.7 — The project structure that makes the above enforceable (not aspirational)
 ```
@@ -300,17 +314,36 @@ benstone-writer/
 ```
 - **Lint-enforced import boundaries** (eslint `no-restricted-imports` / a boundaries plugin): `apps/web` may import `ui/`, `data/`, `schema/` — **never** `sync/`, `automerge-repo`, or raw CSS. Only `data/` imports `sync/`; only `ui/` contains CSS. **A violation fails CI.** That CI failure is what converts every principle above from "we agreed to it" into "the build won't let us not." (Source layout; deploys per §15 as one Worker + DOs.)
 
+### 11.8 — Component inventory (what `ui/` must provide)
+The fixed set the design system ships; *everything* composes these (style written once, §11.3), and **components are not invented ad hoc while coding** — that is exactly how inconsistency sneaks in:
+- **Primitives:** `Button`, `IconButton`, `TextField`, `Link`, `Icon`, `Stack`/`Row`/`Grid` + `Spacer`/`Divider` (layout).
+- **Surfaces / overlays:** `Card`, `Sheet`/`Drawer` (Vaul-style, gesture-driven), `Dialog`, `Popover`, `Tooltip`, `CommandPalette` (⌘K).
+- **Content:** `Prose` (the shared reading/writing measure + typography), `PostListItem`, `Heading`, `Meta`.
+- **App-specific:** `Editor` (Tiptap canvas), `SlashMenu`, `SelectionBubble`, `HistoryScrubber`, `BranchPicker`, `PublishControl`, `EditAffordance`.
+- All on Melt/Bits headless behavior + tokens; each data-bound component keys its shared-element transition by its **path** (§12). The inventory is the contract: the design system is *real* only because the set is fixed up front, not discovered mid-build.
+
 ---
 
-## 12. Motion architecture (not a layer)
+## 12. Motion architecture — animation that teaches the data model
 
-Three layers, all **compositor-driven** (animate only `transform`/`opacity`/`filter`; never layout):
+Motion is not a layer bolted on; it is **how the user learns the shape of the data.** Every animation must encode a real relationship between entities — and because our data is path-addressed (§11.1), the right motion is **derived from the path relationship**, not hand-authored per screen. That is what makes meaningful animation *structural* (and keeps Ben out of the animation-policing seat).
 
-1. **Animatable values (the "Core Animation" analog):** `svelte/motion` `Spring`/`Tween`, rune-driven — set `.target`, the value travels; interruptions handled by spring velocity. This is "interpolation inherent to the value."
-2. **Compositor execution:** Svelte `transition:`/`animate:flip` for enter/leave/reorder; **`motion` vanilla core** for gestures/shared-layout; **CSS scroll-driven animations** for scroll-linked motion (off-main-thread). All → WAAPI.
-3. **State-to-state morphs:** **View Transitions API** (same-document) for route changes + shared-element morphs, used briefly (≤300ms).
-- **Explicitly rejected:** canvas/WebGL retained-mode UI ("SwiftUI-on-a-canvas") — throws away DOM accessibility, text, SEO; wrong for a writing site. The "scene graph" is the reactive component tree, and we animate its values. (Canvas stays available only as an embedded island for any future game/visual-FX.)
-- **Discipline:** 120fps = ~8.3ms budget; `will-change` only transiently; stop loops when offscreen/idle; measure ms/frame before & after each motion change.
+**Semantic vocabulary — consistent app-wide, so the user learns it once:**
+- **Lateral** (slide / scroll / carousel) = **siblings** — same path level (`documents/a` ↔ `documents/b`).
+- **Scale** (zoom in / out) = **level change** — parent⇄child (open `documents/{id}` from the library = scale *in*; back = scale *out*).
+- **Shared-element morph** = **identity & location** — the same entity, **keyed by its path**, animates between wherever it appears (library card → open document; reader → inline editor).
+
+**Structural derivation (the "Core Animation, trivial to declare" part):**
+- The transition layer takes `(fromPath, toPath)`, compares them, and picks the motion: same level → lateral; deeper → scale-in; shallower → scale-out. Declared **once**, applied everywhere — a feature *navigates the data tree* and the correct transition follows.
+- **Shared-element identity = the entity's path.** Every data-bound component sets its `view-transition-name` from its path, so the same datum morphs automatically between views. The path is the continuity key; no per-screen wiring.
+
+**Implementation — the how, all compositor-driven (animate only `transform`/`opacity`/`filter`):**
+- **Animatable values:** `svelte/motion` `Spring`/`Tween` — set `.target`, the value travels; interruptions handled by velocity (interpolation inherent to the value).
+- **Enter / leave / reorder:** Svelte `transition:` / `animate:flip`.
+- **State / route morphs:** the **View Transitions API** (same-document), keyed by path for shared elements; brief (≤300ms).
+- **Gestures / scroll-linked:** `motion` vanilla core + CSS scroll-driven animations (off-main-thread).
+- **Rejected:** decorative motion that encodes no relationship (noise); and canvas/WebGL retained-mode UI (throws away DOM a11y/text/SEO — the "scene graph" is the reactive component tree, whose values we animate).
+- **Discipline:** 120fps = ~8.3ms budget; `will-change` only transiently; stop loops when idle/offscreen; measure ms/frame before & after each motion change.
 
 ---
 
