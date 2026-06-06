@@ -7,11 +7,17 @@
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
     "check": "pnpm -r --if-present check",
-    "lint": "pnpm -r --if-present lint",
+    "lint": "eslint .",
     "test": "vitest run"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^9.39.4",
+    "eslint-plugin-svelte": "^3.19.0",
+    "globals": "^17.6.0",
+    "svelte-eslint-parser": "^1.8.0",
     "typescript": "^6.0.2",
+    "typescript-eslint": "^8.60.1",
     "vitest": "^4.1.8"
   }
 }

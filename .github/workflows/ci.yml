@@ -28,6 +28,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Lint (import boundaries + style)
+        run: pnpm lint
+
       - name: Typecheck (all packages)
         run: pnpm -r --if-present check
 
