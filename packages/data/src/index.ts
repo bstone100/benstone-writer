@@ -251,6 +251,24 @@ export function branchFrom(id: string, heads: string[]): Promise<string> {
   });
 }
 
+export interface PublishSource {
+  title: string;
+  /** Automerge rich-text spans of the body, for static-HTML rendering (§4). */
+  spans: { type: string; value: unknown; marks?: Record<string, unknown> }[];
+}
+
+/** bodyForPublish(id) — the current title + body spans, for the publish render. */
+export function bodyForPublish(id: string): Promise<PublishSource> {
+  return handleFor(id).then((h) => {
+    const doc = h.doc() as Document & { body?: unknown };
+    const spans =
+      doc.body !== undefined
+        ? (A.spans(amDoc(doc), ["body"]) as PublishSource["spans"])
+        : [];
+    return { title: doc.title ?? "", spans };
+  });
+}
+
 /**
  * collection(query) — reactive list of entity ids. Local listing needs a
  * registry document (built with the library UI, #7). Stub for now.

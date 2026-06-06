@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { createDocument } from "@bw/data";
-  import { Editor, History } from "@bw/ui";
+  import { Editor, History, renderForPublish } from "@bw/ui";
 
   // Dev harness for the invisible editor. `?doc={id}` opens a specific document
   // (a second view / another device → proves cloud sync); otherwise a single
@@ -27,6 +27,26 @@
     id = newId; // switch to editing the fresh branch
     showHistory = false;
   }
+
+  let publishing = $state(false);
+  async function publish() {
+    if (!id || publishing) return;
+    publishing = true;
+    try {
+      const req = await renderForPublish(id); // render to static HTML, client-side
+      const res = await fetch("/api/publish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(req),
+      });
+      if (res.ok) {
+        const { slug } = (await res.json()) as { slug: string };
+        window.open(`/writing/${slug}`, "_blank");
+      }
+    } finally {
+      publishing = false;
+    }
+  }
 </script>
 
 {#if id}
@@ -41,6 +61,7 @@
   <footer class="devbar">
     doc <code>{id}</code>
     · <button class="link" onclick={() => (showHistory = true)}>history</button>
+    · <button class="link" onclick={publish} disabled={publishing}>{publishing ? "publishing…" : "publish ↗"}</button>
     · <a href={`/editor?doc=${id}`} target="_blank" rel="noreferrer">open 2nd view ↗</a>
   </footer>
 {/if}

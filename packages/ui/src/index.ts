@@ -3,5 +3,7 @@
 // hard-code raw values.
 export { default as Editor } from "./Editor.svelte";
 export { default as History } from "./History.svelte";
+export { default as Reader } from "./Reader.svelte";
 export { default as Prose } from "./Prose.svelte";
 export { placeholder } from "./placeholder";
+export { renderForPublish, slugify } from "./render";

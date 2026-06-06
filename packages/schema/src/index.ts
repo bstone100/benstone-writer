@@ -19,6 +19,29 @@ export const DocumentSchema = z.object({
 });
 export type Document = z.infer<typeof DocumentSchema>;
 
+/**
+ * A published post (§4, §6 metadata). Created at publish time by rendering a
+ * document's Automerge body to **static HTML** (DOMSerializer over the editor's
+ * schema), so the public reader ships zero editor/CRDT JS. This is the wire
+ * contract for both the publish RPC and the reader's SSR load (define-once §14).
+ */
+export const PublishedPostSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  /** Pre-rendered body HTML (sanitized at render time from our own schema). */
+  html: z.string(),
+  /** Plain-text lead for the index + meta tags. */
+  excerpt: z.string(),
+  publishedAt: z.number(),
+  /** The `documents/{id}` this was published from (for the inline-edit affordance). */
+  sourceId: z.string(),
+});
+export type PublishedPost = z.infer<typeof PublishedPostSchema>;
+
+/** The publish RPC input: the rendered post minus the server-stamped time. */
+export const PublishRequestSchema = PublishedPostSchema.omit({ publishedAt: true });
+export type PublishRequest = z.infer<typeof PublishRequestSchema>;
+
 /** Typed path builders — the only sanctioned way to construct a Path. */
 export const P = {
   documents: ["documents"] as Path,
