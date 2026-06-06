@@ -330,11 +330,11 @@ Motion is not a layer bolted on; it is **how the user learns the shape of the da
 
 **Semantic vocabulary — consistent app-wide, so the user learns it once:**
 - **Lateral** (slide / scroll / carousel) = **siblings** — same path level (`documents/a` ↔ `documents/b`).
-- **Scale** (zoom in / out) = **level change** — parent⇄child (open `documents/{id}` from the library = scale *in*; back = scale *out*).
+- **Depth transition** = **level change** — descend to a child / ascend to a parent. Scaling/zoom is *one* encoding (containment metaphor: the child comes out of the parent); the iOS **push** is another (navigation-stack metaphor: the child slides in and covers the parent, back reveals it). *Which* encoding is the app's vocabulary is a visual-iteration choice; the **semantics** — "this move is a level change" — is the invariant the architecture enforces.
 - **Shared-element morph** = **identity & location** — the same entity, **keyed by its path**, animates between wherever it appears (library card → open document; reader → inline editor).
 
 **Structural derivation (the "Core Animation, trivial to declare" part):**
-- The transition layer takes `(fromPath, toPath)`, compares them, and picks the motion: same level → lateral; deeper → scale-in; shallower → scale-out. Declared **once**, applied everywhere — a feature *navigates the data tree* and the correct transition follows.
+- The transition layer takes `(fromPath, toPath)`, compares them, and picks the motion: same level → lateral; deeper → the *descend* transition (push-cover or zoom-in, per the chosen vocabulary); shallower → its inverse. Declared **once**, applied everywhere — a feature *navigates the data tree* and the correct transition follows.
 - **Shared-element identity = the entity's path.** Every data-bound component sets its `view-transition-name` from its path, so the same datum morphs automatically between views. The path is the continuity key; no per-screen wiring.
 
 **Implementation — the how, all compositor-driven (animate only `transform`/`opacity`/`filter`):**
