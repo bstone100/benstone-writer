@@ -70,7 +70,7 @@
     align-items: baseline;
     gap: var(--space-2);
     padding: var(--space-1) var(--space-3);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     border: 1px solid var(--color-rule);
     text-decoration: none;
     color: var(--color-ink-muted);
