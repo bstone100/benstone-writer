@@ -1,0 +1,46 @@
+import { z } from "zod";
+
+/**
+ * A Path addresses exactly one entity (and optionally a field within it) in the
+ * app's data "filesystem" (§11.1): e.g. ["documents", id] or
+ * ["documents", id, "title"]. Paths are the ONLY way to name data.
+ */
+export type Path = readonly string[];
+
+/**
+ * The Automerge document for one writing piece. `body` holds the editor's
+ * ProseMirror content (populated by @automerge/prosemirror in the editor phase).
+ */
+export const DocumentSchema = z.object({
+  title: z.string(),
+  body: z.unknown().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+export type Document = z.infer<typeof DocumentSchema>;
+
+/** Typed path builders — the only sanctioned way to construct a Path. */
+export const P = {
+  documents: ["documents"] as Path,
+  document(id: string) {
+    return {
+      root: ["documents", id] as Path,
+      title: ["documents", id, "title"] as Path,
+      body: ["documents", id, "body"] as Path,
+    };
+  },
+  published(slug: string): Path {
+    return ["published", slug];
+  },
+} as const;
+
+/** Split a Path into its collection, entity id, and remaining field segments. */
+export function parsePath(path: Path): {
+  collection: string;
+  id: string | undefined;
+  field: string[];
+} {
+  const [collection, id, ...field] = path;
+  if (!collection) throw new Error("empty path");
+  return { collection, id, field };
+}
