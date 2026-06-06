@@ -106,6 +106,31 @@ importers:
         specifier: ^5.56.2
         version: 5.56.2
 
+  workers/api:
+    dependencies:
+      '@automerge/automerge':
+        specifier: 3.2.6
+        version: 3.2.6
+      '@automerge/automerge-repo':
+        specifier: 2.5.6
+        version: 2.5.6
+      '@bw/schema':
+        specifier: workspace:*
+        version: link:../../packages/schema
+      cborg:
+        specifier: ^4.2.14
+        version: 4.5.8
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20260606.1
+        version: 4.20260606.1
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.3
+      wrangler:
+        specifier: ^4.98.0
+        version: 4.98.0(@cloudflare/workers-types@4.20260606.1)
+
 packages:
 
   '@automerge/automerge-repo-storage-indexeddb@2.5.6':
@@ -729,6 +754,10 @@ packages:
 
   cbor-x@1.6.4:
     resolution: {integrity: sha512-UGKHjp6RHC6QuZ2yy5LCKm7MojM4716DwoSaqwQpaH4DvZvbBTGcoDNTiG9Y2lByXZYFEs9WRkS5tLl96IrF1Q==}
+
+  cborg@4.5.8:
+    resolution: {integrity: sha512-6/viltD51JklRhq4L7jC3zgy6gryuG5xfZ3kzpE+PravtyeQLeQmCYLREhQH7pWENg5pY4Yu/XCd6a7dKScVlw==}
+    hasBin: true
 
   chokidar@4.0.3:
     resolution: {integrity: sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA==}
@@ -1625,6 +1654,8 @@ snapshots:
   cbor-x@1.6.4:
     optionalDependencies:
       cbor-extract: 2.2.2
+
+  cborg@4.5.8: {}
 
   chokidar@4.0.3:
     dependencies:
