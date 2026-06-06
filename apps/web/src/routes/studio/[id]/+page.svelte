@@ -10,6 +10,7 @@
 
   let showHistory = $state(false);
   let publishing = $state(false);
+  let focusMode = $state(false); // dim all but the active block while writing (Mod-Shift-f)
 
   async function newBranch() {
     const branchId = await branchHere(id); // fork from the current state
@@ -45,6 +46,7 @@
   </Stack>
 
   <Stack direction="row" gap={4} align="center">
+    <Button variant="link" onclick={() => (focusMode = !focusMode)}>{focusMode ? "Focus ✓" : "Focus"}</Button>
     <Button variant="link" onclick={() => (showHistory = true)}>History</Button>
     <Button variant="link" disabled={publishing} onclick={publish}>
       {publishing ? "Publishing…" : "Publish ↗"}
@@ -53,7 +55,7 @@
 </Bar>
 
 {#key id}
-  <Editor {id} />
+  <Editor {id} bind:focusMode />
 {/key}
 
 {#if showHistory}

@@ -27,12 +27,15 @@
   import { bridge } from "./editor/bridge";
   import { bubbleState, type BubbleState } from "./editor/bubble";
   import { slashState, type SlashState } from "./editor/slash";
+  import { focusPlugin } from "./editor/focus";
   import EditorOverlay from "./editor/EditorOverlay.svelte";
   import { placeholder } from "./placeholder";
   import { vtName } from "./motion";
   import Prose from "./Prose.svelte";
 
-  let { id }: { id: string } = $props();
+  // focusMode is $bindable so the studio chrome can toggle it; Mod-Shift-f flips
+  // it from inside the editor too (invisible, keyboard-first).
+  let { id, focusMode = $bindable(false) }: { id: string; focusMode?: boolean } = $props();
 
   let title = $state<string | undefined>(undefined);
   let titleEl: HTMLTextAreaElement;
@@ -93,9 +96,16 @@
           plugins: [
             history(),
             keymap(buildKeymap(schema)), // marks · lists · history · hard-break
+            keymap({
+              "Mod-Shift-f": () => {
+                focusMode = !focusMode;
+                return true;
+              },
+            }),
             keymap(baseKeymap),
             buildInputRules(schema), // markdown-as-you-type (## , - , > , ``` , ---)
             placeholder("Begin writing…"),
+            focusPlugin(), // marks the caret's block .is-active (dimmed by CSS in focus mode)
             bridge((v) => {
               // PM → Svelte overlay (bubble + slash), one write per transaction.
               ui.bubble = bubbleState(v.state);
@@ -134,7 +144,7 @@
       aria-label="Title"
       style:view-transition-name={vtName(P.document(id).title)}
     ></textarea>
-    <div class="doc-body" bind:this={bodyEl}></div>
+    <div class="doc-body" class:focus-mode={focusMode} bind:this={bodyEl}></div>
   </Prose>
   {#if view}<EditorOverlay {view} {ui} />{/if}
 </article>
@@ -190,5 +200,15 @@
     pointer-events: none;
     float: left;
     height: 0;
+  }
+
+  /* Focus mode (§16.3) — dim every top-level block but the active one. Opacity
+     only (compositor-friendly); the `.is-active` decoration comes from focus.ts. */
+  .doc-body.focus-mode :global(.ProseMirror > *) {
+    opacity: 0.32;
+    transition: opacity var(--dur-base) var(--ease-out);
+  }
+  .doc-body.focus-mode :global(.ProseMirror > .is-active) {
+    opacity: 1;
   }
 </style>
