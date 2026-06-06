@@ -42,6 +42,16 @@ export type PublishedPost = z.infer<typeof PublishedPostSchema>;
 export const PublishRequestSchema = PublishedPostSchema.omit({ publishedAt: true });
 export type PublishRequest = z.infer<typeof PublishRequestSchema>;
 
+/**
+ * Reader-feed event (§7 #5) — pushed over SSE to open readers when a post is
+ * published/updated, so the page updates in place (never a reload/poll). The
+ * one wire shape the feed server emits and the reader client parses.
+ */
+export interface FeedEvent {
+  type: "published";
+  slug: string;
+}
+
 /** Typed path builders — the only sanctioned way to construct a Path. */
 export const P = {
   documents: ["documents"] as Path,

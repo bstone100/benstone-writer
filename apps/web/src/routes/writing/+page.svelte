@@ -1,8 +1,17 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { invalidateAll } from "$app/navigation";
   import { vtName } from "@bw/ui/motion";
   import { P } from "@bw/schema";
   import type { PageData } from "./$types";
   let { data }: { data: PageData } = $props();
+
+  // Live (§7 #5): any publish refreshes the index in place — no reload/poll.
+  onMount(() => {
+    const es = new EventSource("/api/feed");
+    es.addEventListener("published", () => void invalidateAll());
+    return () => es.close();
+  });
 </script>
 
 <svelte:head>
