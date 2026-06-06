@@ -4,6 +4,7 @@ import * as A from "@automerge/automerge";
 import { BrowserWSClientAdapter } from "./ws-client-adapter";
 import { readable, type Readable } from "svelte/store";
 import { parsePath, type Document, type Path } from "@bw/schema";
+import { groupChanges, type HistoryEntry } from "./history";
 
 /**
  * Cloud sync wiring (§8.1). A document syncs to its Durable Object only once
@@ -181,37 +182,12 @@ export function getHandle(id: string): Promise<DocHandle<Document>> {
 type AmDoc = A.Doc<Document>;
 const amDoc = (d: Document): AmDoc => d as unknown as AmDoc;
 
-export interface HistoryEntry {
-  /** Heads to view the document at this session's end (`documentAt`). */
-  heads: string[];
-  /** Unix ms of the session's last change. */
-  time: number;
-  /** Fine-grained changes folded into this session. */
-  changeCount: number;
-}
-
-// Automerge stores change time in seconds; tolerate ms too.
-const toMs = (t: number): number => (t > 1e12 ? t : t * 1000);
+// The session-folding logic + HistoryEntry live in ./history (pure, unit-tested).
+export type { HistoryEntry };
 
 /** Fold the fine-grained change DAG into coarse edit-sessions (§8). */
 function sessionsOf(doc: Document): HistoryEntry[] {
-  const GAP_MS = 3 * 60 * 1000; // a new session after ~3 min idle
-  const out: HistoryEntry[] = [];
-  let cur: HistoryEntry | null = null;
-  for (const raw of A.getAllChanges(amDoc(doc))) {
-    const c = A.decodeChange(raw);
-    const time = toMs(c.time);
-    if (cur && time - cur.time <= GAP_MS) {
-      cur.heads = [c.hash];
-      cur.time = time;
-      cur.changeCount += 1;
-    } else {
-      if (cur) out.push(cur);
-      cur = { heads: [c.hash], time, changeCount: 1 };
-    }
-  }
-  if (cur) out.push(cur);
-  return out;
+  return groupChanges(A.getAllChanges(amDoc(doc)).map((raw) => A.decodeChange(raw)));
 }
 
 /** history(id) — reactive edit-session timeline (oldest → newest). */
