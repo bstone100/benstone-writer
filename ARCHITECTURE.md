@@ -362,7 +362,55 @@ Motion is not a layer bolted on; it is **how the user learns the shape of the da
 
 - **The rule (your "what would Google do — write the contract once, generate both sides"):** *every* shape that crosses a boundary — Automerge document fields, RPC procedure inputs/outputs, SSE event payloads, D1 row types, **and the typed paths of §11.1** — is **defined exactly once** in `packages/schema/`. Client and server both **derive** from it; nothing is declared twice, so the two sides cannot drift. This is the literal enforcement of your protocol principle, not a convention.
 - **Implementation:** `schema/` holds the definitions (Zod → inferred TS types) for all of the above; the typed-RPC layer (oRPC / tRPC v11) **infers the client from the server's procedure definitions**, so the "generated for both sides" property holds with full type-inference and *no* codegen step. If you ever want the *literal* proto/codegen discipline (e.g. a future non-TS client), the alternative is **Connect + protobuf** (`.proto` → generated client + server) on Workers — identical structural guarantee, heavier toolchain. The invariant is the same either way.
-- **Enforced by (A)+(B):** `schema/` is a shared dependency of *every* package; no wire type is defined anywhere else. Every boundary — RPC handlers, the SSE emitter, the WebSocket sync envelope, DO storage writes — accepts only `schema/`-typed values and **`zod.parse`s on ingress**, so an unschema'd or malformed message physically cannot enter the system. ⚠️ oRPC-inference vs Connect-protobuf is the only open sub-choice (§17.7).
+- **Enforced by (A)+(B):** `schema/` is a shared dependency of *every* package; no wire type is defined anywhere else. Every boundary — RPC handlers, the SSE emitter, the WebSocket sync envelope, DO storage writes — accepts only `schema/`-typed values and **`zod.parse`s on ingress**, so an unschema'd or malformed message physically cannot enter the system.
+
+### 14.1 — The API surface (every authored boundary, enumerated)
+Signature level (field-level validation lives in the `schema/` Zod types). One surface — **D, the Automerge sync — is *not ours*** (library protocol); we own only its endpoint + auth. The whole surface fits on a page because the path model means most data needs no API.
+
+**A · Data-layer API** (client, in-process — the *only* way features touch data, §11.1):
+```ts
+read<T>(path: Path): Accessor<T | undefined>        // value + auto-subscribe
+collection(q: Query): Accessor<{ ids: Id[] }>       // reactive list/query
+mutate(path: Path, recipe: (draft) => void): void   // local, transactional write
+// Paths (typed builders): P.documents · P.document(id)[.title|.body|.branches]
+//                         · P.published(slug) · P.settings.editor
+// Query = { prefix: Path; where?: Predicate; sort?: Sort; limit?: number }
+```
+
+**B · RPC** (browser → Worker; imperative verbs *only* — **content edits are NOT here**, they're `mutate()` → local Automerge → synced via D). End-to-end-typed via **oRPC** (no codegen):
+```ts
+auth.registerStart()  → PublicKeyCredentialCreationOptions
+auth.registerFinish(att)        → { ok: true }
+auth.loginStart()     → PublicKeyCredentialRequestOptions
+auth.loginFinish(assertion)     → { ok: true }      // sets the session cookie
+auth.logout()                   → { ok: true }
+
+documents.create({ title?: string })               → { id: DocId }      // + D1 registry row
+documents.publish({ id: DocId, branchId: BranchId }) → { slug: string } // render → D1 → notify feed
+documents.unpublish({ slug: string })              → { ok: true }
+documents.remove({ id: DocId })                    → { ok: true }       // gated on registry (§8)
+
+branches.fork({ id: DocId, atHeads: Hash[] })      → { branchId: BranchId }  // "continue from here"
+branches.setLive({ id: DocId, branchId: BranchId }) → { ok: true }
+branches.merge({ id: DocId, from: BranchId, into: BranchId }) → { ok: true }
+```
+
+**C · SSE** (ReaderFeedDO → readers; one-way, §9):
+```ts
+event "published"    data: { slug: string, updatedAt: number }   // client refetches the edge-cached fragment
+event "unpublished"  data: { slug: string }
+```
+
+**D · Sync WebSocket** (browser ↔ SyncDocDO, §8.1) — **library protocol, not authored here.** We own only:
+`wss://<app>/sync/{documentId}` · auth = session **cookie** validated at the `fetch()` upgrade before `acceptWebSocket()` · payload = automerge-repo CBOR (`cborg`) sync messages (not defined by us).
+
+**E · Internal** (Worker ↔ DO; service bindings):
+```ts
+SyncDocDO.fetch(upgradeRequest)                    // WS upgrade, routed by documentId
+ReaderFeedDO.notify({ slug: string, updatedAt: number })  // publish → fan out to SSE subscribers
+```
+
+All shapes (A–C, E) are defined once in `packages/schema/` and `zod.parse`d at ingress.
 
 ---
 
@@ -397,12 +445,12 @@ Not an MVP-first dogfood ladder; a dependency order for **building the whole thi
 2. ✅ **RESOLVED — R2 storage** (§8.1). No maintained adapter; we implement the ~5-method `StorageAdapter` over the native R2 binding (automerge-repo's content-addressed key layout → auto-dedupe).
 3. ✅ **RESOLVED — DO sharding.** One DO **per document** (not a library DO): independent hibernation, bounded memory, isolation; the D1 registry enumerates docs. Correct even for one author.
 4. ✅ **RESOLVED — compaction.** Built into automerge-repo (self-compacts, lossless) — no Cron needed for correctness; branch ancestry kept safe by modeling each branch as its own document (§8) + gating deletes on the registry. Optional Cron only warm-snapshots idle docs.
-5. **Reader live-update granularity:** SSE event-only + client refetch, vs push rendered content in the event.
-6. **Authoring app rendering:** the editor is client-only (SPA island); public is SSR. Confirm the SvelteKit route split (private SPA vs public SSR) and that the editor never SSRs.
-7. **oRPC vs tRPC v11 vs Hono RPC** for the thin imperative layer (minor).
+5. ✅ **RESOLVED — reader granularity** (§14.1.C): SSE carries `{ slug, updatedAt }`; client refetches the edge-cached fragment. (Push-HTML-in-event is the fallback if we ever want zero round-trip.)
+6. ✅ **RESOLVED — route split** (§11.6): public routes SSR + edge-cached; studio surfaces are client islands behind the session check; the editor island + sync socket never load for an unauthed reader, and never SSR.
+7. ✅ **RESOLVED — RPC layer: oRPC** (§14.1.B): end-to-end TS inference, no codegen; Connect/protobuf only if a non-TS client ever appears.
 8. **Schema/typing of Automerge docs** — Zod-validated doc shape + typed path builders so `entity()` paths aren't stringly-typed.
 9. **Migration:** how `benstone-content` MDX essays convert into Automerge/ProseMirror docs.
 
 ---
 
-*v0.2 — §17.1–17.4 resolved (sync wiring specified in §8.1). Remaining open items are minor (reader-update granularity, route split, RPC choice, doc schema, migration). The shape is locked; the how is largely nailed.*
+*v0.3 — full API surface defined (§14.1); §17.1–17.7 resolved. Only build-time items remain (the exhaustive Zod document schema, and content migration). This is implementable in one pass.*
