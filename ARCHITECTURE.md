@@ -224,11 +224,67 @@ On Cloudflare the "services" are **Workers + Durable Objects + bound storage**. 
 
 ---
 
-## 11. Reactivity & client data architecture
+## 11. Client & UI architecture — your principles enforced *structurally*
 
-- **Svelte 5 runes** (`$state`/`$derived`) — fine-grained, no whole-page re-render.
-- A thin **`entity(path)` / `collection(spec)` façade** over automerge-repo document handles: a component is handed a path, reads it (auto-subscribes to just that path), auto-unsubscribes on unmount. **No prop-drilling.** The façade isolates the sync engine behind one module (swappable).
-- **Component library:** Bits/Melt headless primitives + **CSS-custom-property design tokens**; style authored once. Presentational components are data-free; thin connectors do the path subscription. (Containers sit adjacent to leaves — not prop-drilling.)
+> These are invariants, not style preferences. The architecture is built so the wrong shape is **impossible or the path of most resistance** — never something to "remember." For each principle below, the doc names **the mechanism that enforces it**, because a principle the build can't enforce is just a wish.
+
+### 11.0 — How anything is made structural here
+Three mechanisms, reused throughout:
+- **(A) One allowed door** — a single API for data, a single source for style, a single definition for every wire message, and *no second way in*.
+- **(B) Package + lint boundaries** — the build forbids the illegal import or shape, so a violation **fails CI**, not code review.
+- **(C) Framework grain** — Svelte's compiler and Automerge's reactivity make the right thing the least code.
+
+Every "enforced by" tag below is one of these.
+
+### 11.1 — App data is a path-addressed filesystem. No exceptions.
+- One normalized reactive tree; every entity has a **canonical absolute path**: `documents/{id}`, `documents/{id}/title`, `documents/{id}/branches/{bid}`, `published/{slug}`, `settings/editor`, … A path names exactly one entity; fields are sub-paths.
+- The **only** data API any component may touch:
+  - `read(path)` → reactive accessor (value + auto-subscribe + auto-unsubscribe on unmount)
+  - `collection(query)` → reactive `{ ids, order }` for a list/query
+  - `mutate(path, recipe)` → the only write; transactional/batched
+- **Paths are typed, not strings:** a schema-generated builder — `P.document(id).title` — yields a typed path, so a wrong path is a *compile error*. (From `schema/`, §14.)
+- **Enforced by (A)+(B):** `read/collection/mutate` are the *only* data exports, from the `data/` package; a lint boundary forbids feature/UI code from importing `automerge-repo`, the sync layer, or any store directly. There is no legal way to get data except by path; reaching around it fails CI.
+
+### 11.2 — Components fetch their own data by path and subscribe. Props carry identity, never data.
+- A component that needs data is handed the **path**, not the data; inside, `read(path)` gives it the value *and* the subscription. It is self-contained and mountable anywhere in the tree.
+- **Prop-drilling is barred by construction:** props may carry **paths/ids + presentational config** (`variant`, `size`) — **never a domain-data object**. Passing a fetched entity down through props is the forbidden shape.
+- **Enforced by (A)+(B):** `read()` hands back a *reactive accessor*, not a plain object, so there's nothing convenient to drill; a lint rule flags any prop typed as a domain entity (you pass `path: DocPath`, never `doc: Document`). A relocated component keeps working because it owns its own subscription — the whole point.
+
+### 11.3 — One component library + design system. Style is written exactly once.
+- A single `ui/` package = **design tokens** (CSS custom properties — the *only* place raw color/space/type/motion values live) + **headless primitives** (Melt/Bits) + a small **styled set** (`Button`, `TextField`, `Stack`, `Prose`, …). Features **compose** these; features do not write CSS.
+- **Enforced by (B):** `ui/` is the *only* package permitted to contain CSS/`<style>` — a feature package that ships CSS fails lint; **stylelint** forbids literal color/px/font values anywhere (only `var(--token)`), so even `ui/` derives from tokens. One token file = one source of truth → consistent brand, and a token change restyles everything. Scattered custom CSS is **unmergeable**.
+
+### 11.4 — Inversion of control · separation of concerns · event-based · real-time = perception
+- **IoC:** exactly one way to get data, one to style, one to message the server — so the best-practice path is the *only* path. The architecture *is* the inversion; you don't conform it to best practices, it has no other shape. (Svelte's compiler is the same idea at the language level.)
+- **SoC / no god-files:** Svelte SFCs split script/markup/style by construction; the packages split **data** (`data/`), **style** (`ui/`), **features** (compose), **domain logic** (pure fns over the store). No file can mix concerns because the boundaries forbid it.
+- **Event-based, never polling:** the data layer is subscription-only (Automerge change events → fine-grained signals); reader push is SSE; sync is WebSocket. **There is no polling primitive in `data/`** — nothing to poll with. (Your one allowed exception — sub-perceptual-rate sampling for a render/clock loop — lives only in the motion layer, never in data.)
+- **Real-time = user perception:** the UI reads/writes only the **local** store (the path API over the local Automerge doc) and **never awaits a network round-trip to render or accept input.** The network is background sync, full stop. Structural, because the data API is local by construction — "await fetch, then show" is not an available shape, so the user never waits.
+
+### 11.5 — Inline editing: read and edit are two views of *one* entity
+Your inline-edit requirement actually *tightens* the path principle rather than complicating it:
+- **One article = one Automerge document** at `documents/{id}`. "Published" is state + a cached static render at `published/{slug}`. The reader render and the editor are **two views of the same path**, not two stores.
+- **Reader (unauthed):** SSR static HTML from `published/{slug}`; zero editor JS.
+- **You, on the same URL:** the page checks your session; if it's you, an **Edit** affordance exists. Pressing it lazy-loads the **editor island** (Tiptap + automerge-repo + sync WS) bound to **the same `documents/{id}`** and swaps the static render for the live editor *in place* — fix the typo, autosaved + versioned instantly.
+- **Auth-gated structurally:** the editor bundle and the authenticated sync socket are only loaded behind the session check; an unauthed reader can neither fetch the editor chunk nor open the socket. The Edit affordance is gated server-side.
+- **Re-publish:** inline edits land in the doc (autosaved, in history); pushing them to readers is the explicit **Publish** (re-render `published/{slug}`, notify the reader-feed). ⚠️ open UX call: for an already-live article, auto-republish small fixes, or require a Publish tap? (I lean: a one-tap "publish this fix," so readers never catch a half-finished edit.)
+
+### 11.6 — UI surfaces (the spec was light here; these are the actual surfaces)
+**Reader** (SSR, live-updating, + your inline Edit) · **Editor** (invisible Tiptap; slash/bubble for light structure; focus mode; autosave) · **History & branches** (the "continue from here" scrubber + branch picker, §8) · **Library** (your doc list — a `collection('documents/*')`) · **Command palette** (⌘K, keyboard-first — the Linear feel) · **Auth** (passkey unlock). All built only from `ui/` over the path API; motion per §12.
+
+### 11.7 — The project structure that makes the above enforceable (not aspirational)
+```
+benstone-writer/
+  packages/
+    schema/   <- the ONE source of truth: data shapes, RPC procs, SSE events, typed paths (§14)
+    data/     <- the ONLY data API: read() / collection() / mutate()   (imports sync/, exposes paths)
+    ui/       <- the ONLY place CSS lives: tokens + headless primitives + styled components
+    sync/     <- automerge-repo + adapters; imported ONLY by data/
+  apps/
+    web/      <- SvelteKit; features compose ui/ + data/ + schema/   (no CSS, no direct data/sync access)
+  workers/
+    api/      <- Worker + DOs (SyncDocDO, ReaderFeedDO), auth, publish RPC; imports schema/
+```
+- **Lint-enforced import boundaries** (eslint `no-restricted-imports` / a boundaries plugin): `apps/web` may import `ui/`, `data/`, `schema/` — **never** `sync/`, `automerge-repo`, or raw CSS. Only `data/` imports `sync/`; only `ui/` contains CSS. **A violation fails CI.** That CI failure is what converts every principle above from "we agreed to it" into "the build won't let us not." (Source layout; deploys per §15 as one Worker + DOs.)
 
 ---
 
@@ -255,10 +311,11 @@ Three layers, all **compositor-driven** (animate only `transform`/`opacity`/`fil
 
 ---
 
-## 14. Typed contracts
+## 14. Define-once protocol — one schema, both sides derive (structurally)
 
-- **Replicated data (≈95%):** the **Automerge document schema** *is* the contract — same TS/Zod definitions client & DO; no API to hand-write, no WebSocket JSON-RPC.
-- **Imperative verbs (publish, branch side-effects, contact form):** a **thin typed RPC** (oRPC/tRPC v11) — small surface, end-to-end TS types. If Ben wants literal "write-the-proto-once" rigor, Connect/protobuf is the alternative; for a few procedures oRPC is lighter. ⚠️ §17.
+- **The rule (your "what would Google do — write the contract once, generate both sides"):** *every* shape that crosses a boundary — Automerge document fields, RPC procedure inputs/outputs, SSE event payloads, D1 row types, **and the typed paths of §11.1** — is **defined exactly once** in `packages/schema/`. Client and server both **derive** from it; nothing is declared twice, so the two sides cannot drift. This is the literal enforcement of your protocol principle, not a convention.
+- **Implementation:** `schema/` holds the definitions (Zod → inferred TS types) for all of the above; the typed-RPC layer (oRPC / tRPC v11) **infers the client from the server's procedure definitions**, so the "generated for both sides" property holds with full type-inference and *no* codegen step. If you ever want the *literal* proto/codegen discipline (e.g. a future non-TS client), the alternative is **Connect + protobuf** (`.proto` → generated client + server) on Workers — identical structural guarantee, heavier toolchain. The invariant is the same either way.
+- **Enforced by (A)+(B):** `schema/` is a shared dependency of *every* package; no wire type is defined anywhere else. Every boundary — RPC handlers, the SSE emitter, the WebSocket sync envelope, DO storage writes — accepts only `schema/`-typed values and **`zod.parse`s on ingress**, so an unschema'd or malformed message physically cannot enter the system. ⚠️ oRPC-inference vs Connect-protobuf is the only open sub-choice (§17.7).
 
 ---
 
