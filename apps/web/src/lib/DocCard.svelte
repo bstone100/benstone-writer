@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { read } from "@bw/data";
   import { P } from "@bw/schema";
+  import { vtName } from "@bw/ui/motion";
 
   // §11.2: the card is handed only an id; it reads its OWN title by path. Each
   // card is keyed by id in the list, so the id is stable for its lifetime.
@@ -10,7 +11,10 @@
 </script>
 
 <a class="card" href={`/studio/${id}`}>
-  <span class="t">{$title || "Untitled"}</span>
+  <!-- Shared-element identity keyed by path (§12): this title and the editor's
+       title set the SAME view-transition-name, so descending into the document
+       morphs the title into place automatically — no per-screen animation. -->
+  <span class="t" style:view-transition-name={vtName(P.document(id).title)}>{$title || "Untitled"}</span>
   <span class="go">→</span>
 </a>
 

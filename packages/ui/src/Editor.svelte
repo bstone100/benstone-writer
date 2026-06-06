@@ -23,6 +23,7 @@
   import { baseKeymap } from "prosemirror-commands";
   import { history, undo, redo } from "prosemirror-history";
   import { placeholder } from "./placeholder";
+  import { vtName } from "./motion";
   import Prose from "./Prose.svelte";
 
   let { id }: { id: string } = $props();
@@ -114,6 +115,7 @@
       spellcheck="false"
       name="title"
       aria-label="Title"
+      style:view-transition-name={vtName(P.document(id).title)}
     ></textarea>
     <div class="doc-body" bind:this={bodyEl}></div>
   </Prose>
