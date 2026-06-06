@@ -47,6 +47,38 @@ export function enableSync(documentId: string): void {
   repo().networkSubsystem.addNetworkAdapter(adapter);
 }
 
+/* ------------------------------------------------------------------ *
+ * Document registry — a well-known local Automerge doc that lists every
+ * document id, so the studio library can enumerate them (§11.6). The
+ * library lists ids; each card reads its OWN title by path (§11.2).
+ * (Local for now; syncing the registry itself lands with multi-device.)
+ * ------------------------------------------------------------------ */
+interface Registry {
+  ids: string[];
+}
+const REGISTRY_KEY = "bw-registry";
+let _registry: Promise<DocHandle<Registry>> | undefined;
+function registryHandle(): Promise<DocHandle<Registry>> {
+  if (!_registry) {
+    const existing = localStorage.getItem(REGISTRY_KEY);
+    if (existing) {
+      _registry = repo().find<Registry>(existing as AnyDocumentId);
+    } else {
+      const h = repo().create<Registry>({ ids: [] });
+      localStorage.setItem(REGISTRY_KEY, h.documentId as unknown as string);
+      _registry = Promise.resolve(h);
+    }
+  }
+  return _registry;
+}
+function registerDoc(id: string): void {
+  void registryHandle().then((reg) =>
+    reg.change((r) => {
+      if (!r.ids.includes(id)) r.ids.push(id);
+    }),
+  );
+}
+
 /** Cache handles (by id) so reads/writes after the first find are instant. */
 const handles = new Map<string, Promise<DocHandle<Document>>>();
 function handleFor(id: string): Promise<DocHandle<Document>> {
@@ -127,6 +159,7 @@ export function createDocument(initial?: Partial<Document>): string {
   const h = repo().create<Document>(initialDoc);
   const id = h.documentId as unknown as string;
   handles.set(id, Promise.resolve(h));
+  registerDoc(id); // list it in the studio library
   return id;
 }
 
@@ -270,9 +303,25 @@ export function bodyForPublish(id: string): Promise<PublishSource> {
 }
 
 /**
- * collection(query) — reactive list of entity ids. Local listing needs a
- * registry document (built with the library UI, #7). Stub for now.
+ * collection() — reactive list of document ids from the registry (§11.1). The
+ * library subscribes to this; each card then reads its own title by path.
  */
 export function collection(): Readable<{ ids: string[] }> {
-  return readable({ ids: [] });
+  return readable<{ ids: string[] }>({ ids: [] }, (set) => {
+    let handle: DocHandle<Registry> | undefined;
+    let active = true;
+    const onChange = () => {
+      if (handle) set({ ids: [...handle.doc().ids] });
+    };
+    void registryHandle().then((h) => {
+      if (!active) return;
+      handle = h;
+      h.on("change", onChange);
+      onChange();
+    });
+    return () => {
+      active = false;
+      handle?.off("change", onChange);
+    };
+  });
 }

@@ -13,3 +13,29 @@ import type { Path } from "@bw/schema";
 export function vtName(path: Path): string {
   return "vt-" + path.join("-").replace(/[^a-zA-Z0-9_-]/g, "-");
 }
+
+export type TransitionKind = "descend" | "ascend" | "lateral" | "crossfade";
+
+function isPrefix(prefix: Path, of: Path): boolean {
+  return prefix.length <= of.length && prefix.every((seg, i) => of[i] === seg);
+}
+
+/**
+ * transitionKind(from, to) — THE derivation (§12): the motion is a function of
+ * the two paths' relationship, not hand-authored per screen.
+ *   • descend  — `to` is a child of `from` (documents → documents/{id}): a level
+ *                deeper. The iOS push (child slides in over the parent).
+ *   • ascend   — `to` is an ancestor of `from`: a level shallower. Push's inverse.
+ *   • lateral  — same level, same parent (documents/a → documents/b): siblings.
+ *   • crossfade— unrelated; no hierarchy/sibling relationship to encode.
+ * Declare this once; every navigation that moves through the data tree gets the
+ * transition that teaches where it went.
+ */
+export function transitionKind(from: Path, to: Path): TransitionKind {
+  if (from.length === to.length) {
+    return from.length > 0 && isPrefix(from.slice(0, -1), to) ? "lateral" : "crossfade";
+  }
+  if (isPrefix(from, to)) return "descend"; // into a child
+  if (isPrefix(to, from)) return "ascend"; // back toward the root
+  return "crossfade";
+}

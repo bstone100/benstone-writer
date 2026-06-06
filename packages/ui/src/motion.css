@@ -17,6 +17,64 @@
   animation-timing-function: var(--ease-out, ease);
 }
 
+/*
+ * Path-derived PAGE transitions (§12). The studio sets `data-vt-kind` on <html>
+ * — from transitionKind(fromPath, toPath) — before starting a same-document view
+ * transition; the rules below ARE the encoding (declared once). Compositor-only
+ * (transform/opacity). Cross-document nav (the reader) leaves data-vt-kind unset,
+ * so it keeps the default crossfade + shared-element morph.
+ */
+@keyframes vt-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes vt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-in-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(2.5rem);
+  }
+}
+@keyframes vt-out-to-right {
+  to {
+    opacity: 0;
+    transform: translateX(2.5rem);
+  }
+}
+@keyframes vt-out-to-left {
+  to {
+    opacity: 0;
+    transform: translateX(-2.5rem);
+  }
+}
+
+/* descend — the child rises in from the right, over the parent (iOS push). */
+html[data-vt-kind="descend"]::view-transition-old(root) {
+  animation: vt-fade-out var(--dur-base, 220ms) var(--ease-out, ease) both;
+}
+html[data-vt-kind="descend"]::view-transition-new(root) {
+  animation: vt-in-from-right var(--dur-slow, 320ms) var(--ease-out, ease) both;
+}
+/* ascend — the child slides back off to the right, revealing the parent (pop). */
+html[data-vt-kind="ascend"]::view-transition-old(root) {
+  animation: vt-out-to-right var(--dur-slow, 320ms) var(--ease-out, ease) both;
+}
+html[data-vt-kind="ascend"]::view-transition-new(root) {
+  animation: vt-fade-in var(--dur-base, 220ms) var(--ease-out, ease) both;
+}
+/* lateral — siblings slide horizontally. */
+html[data-vt-kind="lateral"]::view-transition-old(root) {
+  animation: vt-out-to-left var(--dur-base, 220ms) var(--ease-out, ease) both;
+}
+html[data-vt-kind="lateral"]::view-transition-new(root) {
+  animation: vt-in-from-right var(--dur-base, 220ms) var(--ease-out, ease) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*),
   ::view-transition-old(*),
