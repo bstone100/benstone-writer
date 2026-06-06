@@ -6,6 +6,13 @@
 
   The `{@html}` is safe: the HTML was produced by DOMSerializer over our own
   schema at publish time, which can only emit known nodes/marks.
+
+  Note on §11.2: this takes a `post` object, not a path — and that's correct, not
+  a violation. §11.2 governs the client local-store plane (read()/subscribe). The
+  public reader is SSR-from-published-cache with ZERO CRDT JS, so there's no store
+  to subscribe to; `PublishedPost` is a server-rendered projection delivered by
+  the page's load (§9/§11.5). The banned shape — drilling a local-store `Document`
+  — is what the lint rule in eslint.config.js forbids; PublishedPost is exempt.
 -->
 <script lang="ts">
   import { P, type PublishedPost } from "@bw/schema";

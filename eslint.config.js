@@ -8,9 +8,24 @@ import svelteParser from "svelte-eslint-parser";
  * architecture's boundaries, not to impose a general style regime.
  */
 
+// §11.2: a component takes a path/id and read()s its own data — props carry
+// identity, never a local-store entity. Importing the `Document` (local-store)
+// type into feature/UI code is the banned shape: if you can't name the type, you
+// can't drill `doc: Document` down through props; you pass `P.document(id)` and
+// the component owns its subscription. (SSR projections like PublishedPost are
+// explicitly fine — the public reader has no client store to subscribe to, so it
+// receives server-rendered data by design, §9/§11.5.)
+const NO_LOCAL_ENTITY_PROP = {
+  name: "@bw/schema",
+  importNames: ["Document"],
+  message:
+    "§11.2: pass a path/id and read() your own data — never a local-store entity. Import P.document(id), not the Document type. (SSR projections like PublishedPost are fine.)",
+};
+
 // Features (apps/web): may only reach data/UI through @bw/* — never CRDT/editor
 // internals directly.
 const FEATURE_BOUNDARY = {
+  paths: [NO_LOCAL_ENTITY_PROP],
   patterns: [
     {
       group: ["@automerge/*", "prosemirror", "prosemirror-*", "cborg", "@bw/data/*"],
@@ -34,6 +49,7 @@ const NO_FEATURE_CSS = {
 // (the editor binding), but must NOT touch automerge-repo/automerge directly —
 // that's data/'s job.
 const UI_BOUNDARY = {
+  paths: [NO_LOCAL_ENTITY_PROP],
   patterns: [
     {
       group: ["@automerge/automerge", "@automerge/automerge-repo", "@automerge/automerge-repo-*", "cborg"],
