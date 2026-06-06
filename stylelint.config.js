@@ -26,6 +26,7 @@
 // Properties whose values must resolve to a design token.
 const TOKEN_PROPS = [
   "/color/", // color, background-color, border-color, *-color, …
+  "background", // shorthand can carry a color → enforce too (var()/none/url ok)
   "fill",
   "stroke",
   "font-family",

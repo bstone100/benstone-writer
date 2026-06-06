@@ -20,6 +20,16 @@ const FEATURE_BOUNDARY = {
   ],
 };
 
+// Features write NO CSS (§11.3/§11.8). A `<style>` block in apps/web is the
+// banned shape: features compose @bw/ui primitives, and every raw value lives in
+// @bw/ui (where tokens + Stylelint govern it). esquery matches the Svelte
+// parser's style-element node, so adding a <style> to a feature FAILS lint → CI.
+const NO_FEATURE_CSS = {
+  selector: "SvelteStyleElement",
+  message:
+    "Features write no CSS (§11.3/§11.8). Compose @bw/ui primitives; if a new style is genuinely needed, add or extend a component in packages/ui — never style here.",
+};
+
 // The component library (packages/ui): composes @bw/data + @automerge/prosemirror
 // (the editor binding), but must NOT touch automerge-repo/automerge directly —
 // that's data/'s job.
@@ -60,7 +70,10 @@ export default [
   },
   {
     files: ["apps/web/src/**/*.{ts,svelte}"],
-    rules: { "no-restricted-imports": ["error", FEATURE_BOUNDARY] },
+    rules: {
+      "no-restricted-imports": ["error", FEATURE_BOUNDARY],
+      "no-restricted-syntax": ["error", NO_FEATURE_CSS],
+    },
   },
   {
     files: ["packages/ui/src/**/*.{ts,svelte}"],

@@ -1,0 +1,22 @@
+/*
+ * App canvas (§11.3) — the base element layer beneath every page. Imported once
+ * in the root layout alongside tokens.css + motion.css. Warm paper, ink text,
+ * sans by default; the serif reading column is established by Prose where
+ * long-form content lives. This is the ONE place app-global element styling
+ * lives, so features and the app shell write no CSS of their own.
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box; /* width includes padding — kills padding-overflow bugs */
+}
+html {
+  background: var(--color-paper);
+}
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

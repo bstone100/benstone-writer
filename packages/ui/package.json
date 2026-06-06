@@ -18,7 +18,8 @@
       "default": "./src/motion.ts"
     },
     "./tokens.css": "./src/tokens.css",
-    "./motion.css": "./src/motion.css"
+    "./motion.css": "./src/motion.css",
+    "./base.css": "./src/base.css"
   },
   "dependencies": {
     "@automerge/prosemirror": "^0.2.0",
