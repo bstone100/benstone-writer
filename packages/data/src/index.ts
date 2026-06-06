@@ -49,15 +49,28 @@ export function enableSync(documentId: string): void {
 }
 
 /* ------------------------------------------------------------------ *
- * Document registry — a well-known local Automerge doc that lists every
- * document id, so the studio library can enumerate them (§11.6). The
- * library lists ids; each card reads its OWN title by path (§11.2).
- * (Local for now; syncing the registry itself lands with multi-device.)
+ * Document registry — families & branches (§8). Each document is its own
+ * Automerge doc; the FORK relationship (which family, forked from where,
+ * at what point) lives here, relationally. The studio library lists family
+ * roots; the BranchPicker lists one family's branches. Each branch is a
+ * sibling timeline sharing ancestry up to its fork point (Patchwork).
+ * (Local dev stand-in for D1; the registry itself syncs with multi-device.)
  * ------------------------------------------------------------------ */
-interface Registry {
-  ids: string[];
+interface RegistryEntry {
+  id: string;
+  /** The family's root document id; every branch of the family shares it. */
+  familyId: string;
+  /** The document this was forked from (absent for a family root). */
+  parent?: string;
+  /** Heads the fork was taken at (absent for a root). */
+  forkedAtHeads?: string[];
+  name: string;
+  createdAt: number;
 }
-const REGISTRY_KEY = "bw-registry";
+interface Registry {
+  docs: RegistryEntry[];
+}
+const REGISTRY_KEY = "bw-registry-v2";
 let _registry: Promise<DocHandle<Registry>> | undefined;
 function registryHandle(): Promise<DocHandle<Registry>> {
   if (!_registry) {
@@ -65,17 +78,17 @@ function registryHandle(): Promise<DocHandle<Registry>> {
     if (existing) {
       _registry = repo().find<Registry>(existing as AnyDocumentId);
     } else {
-      const h = repo().create<Registry>({ ids: [] });
+      const h = repo().create<Registry>({ docs: [] });
       localStorage.setItem(REGISTRY_KEY, h.documentId as unknown as string);
       _registry = Promise.resolve(h);
     }
   }
   return _registry;
 }
-function registerDoc(id: string): void {
+function addEntry(entry: RegistryEntry): void {
   void registryHandle().then((reg) =>
     reg.change((r) => {
-      if (!r.ids.includes(id)) r.ids.push(id);
+      if (!r.docs.some((d) => d.id === entry.id)) r.docs.push(entry);
     }),
   );
 }
@@ -160,7 +173,8 @@ export function createDocument(initial?: Partial<Document>): string {
   const h = repo().create<Document>(initialDoc);
   const id = h.documentId as unknown as string;
   handles.set(id, Promise.resolve(h));
-  registerDoc(id); // list it in the studio library
+  // A new document is the root ("main") of its own family (§8).
+  addEntry({ id, familyId: id, name: "main", createdAt: now });
   return id;
 }
 
@@ -248,7 +262,8 @@ export function documentAt(id: string, heads: string[]): Promise<Snapshot> {
 /**
  * branchFrom(id, heads) — fork a new branch document from a past point (§8). The
  * fork shares ancestry up to `heads` (Patchwork pattern); the original is
- * untouched (nothing is ever deleted). Returns the new document id.
+ * untouched (nothing is ever deleted). Registers the branch in the family so the
+ * BranchPicker can list it. Returns the new document id.
  */
 export function branchFrom(id: string, heads: string[]): Promise<string> {
   return handleFor(id).then((h) => {
@@ -256,7 +271,69 @@ export function branchFrom(id: string, heads: string[]): Promise<string> {
     const branch = repo().import<Document>(A.save(forked));
     const newId = branch.documentId as unknown as string;
     handles.set(newId, Promise.resolve(branch));
+    const now = Date.now();
+    void registryHandle().then((reg) =>
+      reg.change((r) => {
+        if (r.docs.some((d) => d.id === newId)) return;
+        const familyId = r.docs.find((d) => d.id === id)?.familyId ?? id;
+        r.docs.push({ id: newId, familyId, parent: id, forkedAtHeads: heads, name: "fork", createdAt: now });
+      }),
+    );
     return newId;
+  });
+}
+
+/** branchHere(id) — fork a branch from the document's CURRENT state. */
+export function branchHere(id: string): Promise<string> {
+  return handleFor(id).then((h) => branchFrom(id, A.getHeads(amDoc(h.doc()))));
+}
+
+export interface BranchInfo {
+  id: string;
+  name: string;
+  parent?: string;
+  forkedAtHeads?: string[];
+  createdAt: number;
+  /** True for the branch currently being viewed. */
+  current: boolean;
+}
+
+/** branches(id) — reactive list of the branches in this document's family (§8). */
+export function branches(id: string): Readable<BranchInfo[]> {
+  return readable<BranchInfo[]>([], (set) => {
+    let handle: DocHandle<Registry> | undefined;
+    let active = true;
+    const onChange = () => {
+      if (!handle) return;
+      const docs = handle.doc().docs;
+      const familyId = docs.find((d) => d.id === id)?.familyId ?? id;
+      const fam: BranchInfo[] = docs
+        .filter((d) => d.familyId === familyId)
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((d) => ({
+          id: d.id,
+          name: d.name,
+          parent: d.parent,
+          forkedAtHeads: d.forkedAtHeads,
+          createdAt: d.createdAt,
+          current: d.id === id,
+        }));
+      // Always include the doc being viewed, even if it isn't registered.
+      if (!fam.some((b) => b.id === id)) {
+        fam.unshift({ id, name: "main", createdAt: 0, current: true });
+      }
+      set(fam);
+    };
+    void registryHandle().then((h) => {
+      if (!active) return;
+      handle = h;
+      h.on("change", onChange);
+      onChange();
+    });
+    return () => {
+      active = false;
+      handle?.off("change", onChange);
+    };
   });
 }
 
@@ -279,15 +356,16 @@ export function bodyForPublish(id: string): Promise<PublishSource> {
 }
 
 /**
- * collection() — reactive list of document ids from the registry (§11.1). The
- * library subscribes to this; each card then reads its own title by path.
+ * collection() — reactive list of family-ROOT document ids (§11.1). The library
+ * lists roots only; branches live behind the BranchPicker. Each card reads its
+ * own title by path.
  */
 export function collection(): Readable<{ ids: string[] }> {
   return readable<{ ids: string[] }>({ ids: [] }, (set) => {
     let handle: DocHandle<Registry> | undefined;
     let active = true;
     const onChange = () => {
-      if (handle) set({ ids: [...handle.doc().ids] });
+      if (handle) set({ ids: handle.doc().docs.filter((d) => !d.parent).map((d) => d.id) });
     };
     void registryHandle().then((h) => {
       if (!active) return;
