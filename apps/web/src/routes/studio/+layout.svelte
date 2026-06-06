@@ -1,8 +1,24 @@
 <script lang="ts">
-  import { onNavigate } from "$app/navigation";
+  import { onNavigate, goto } from "$app/navigation";
+  import { createDocument } from "@bw/data";
   import { transitionKind } from "@bw/ui/motion";
+  import { CommandPalette, type Command } from "@bw/ui";
 
   let { children } = $props();
+
+  // ⌘K palette (§11.6) — global studio navigation + actions. The feature owns
+  // what each command DOES; the component owns the trigger + filtering + nav.
+  const commands: Command[] = [
+    {
+      id: "new",
+      label: "New essay",
+      hint: "⏎",
+      run: () => void goto(`/studio/${createDocument({ title: "" })}`),
+    },
+    { id: "studio", label: "Go to Studio", run: () => void goto("/studio") },
+    { id: "writing", label: "Go to Writing", run: () => void goto("/writing") },
+    { id: "home", label: "Go to Home", run: () => void goto("/") },
+  ];
 
   // Map a studio URL to its DATA path, so the transition is derived from the
   // data hierarchy (§12) rather than the route string:
@@ -38,3 +54,4 @@
 </script>
 
 {@render children()}
+<CommandPalette {commands} />

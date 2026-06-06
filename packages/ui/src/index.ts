@@ -13,6 +13,7 @@ export { default as Button } from "./Button.svelte";
 export { default as Link } from "./Link.svelte";
 export { default as Card } from "./Card.svelte";
 export { default as Bar } from "./Bar.svelte";
+export { default as CommandPalette, type Command } from "./CommandPalette.svelte";
 
 // ---- Composed, data-aware components.
 export { default as Editor } from "./Editor.svelte";
