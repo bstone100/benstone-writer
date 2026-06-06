@@ -26,38 +26,34 @@ The system is cleanly split into two planes that must **not** be conflated (conf
 - **Authoring plane** — *private, single-user, local-first, read-write.* The editor, the local Automerge documents, sync to the cloud, branching/history, auth. Heavy CRDT machinery lives here. Latency-critical for *Ben*.
 - **Reading plane** — *public, many readers, read-only, fast, live-updating.* Published posts, served static-fast and pushed live on publish. No CRDT, no editor JS. Latency-critical for *readers* (first paint) but the data is immutable and trivial.
 
-```mermaid
-flowchart TB
-  subgraph Client["Ben's devices (browser) — AUTHORING"]
-    Editor["Tiptap/ProseMirror editor"]
-    ARepo["automerge-repo<br/>(IndexedDB adapter = local source of truth)"]
-    Editor <-->|automerge-prosemirror| ARepo
-  end
+```
+      AUTHORING  (private, local-first)            READING  (public, read-only)
+      ─────────────────────────────────            ────────────────────────────
 
-  subgraph CF["Cloudflare edge"]
-    App["SvelteKit Worker<br/>(public SSR + authoring shell + API)"]
-    Auth["Auth (Hono routes in Worker)"]
-    SyncDO["Sync Durable Object<br/>(per-doc Automerge peer + WS hub)"]
-    FeedDO["Reader-feed Durable Object<br/>(SSE broadcast on publish)"]
-    R2[("R2<br/>Automerge change/snapshot blobs")]
-    D1[("D1 (SQLite)<br/>doc/branch registry,<br/>published index, credential")]
-    KV[("KV<br/>WebAuthn challenges, sessions")]
-  end
-
-  subgraph Readers["Readers (browser) — READING"]
-    Page["Published post (SSR, no editor JS)"]
-  end
-
-  ARepo <-->|WebSocket: Automerge sync protocol| SyncDO
-  SyncDO <-->|persist/load| R2
-  SyncDO -->|metadata| D1
-  Editor -->|"publish (typed RPC)"| App
-  App -->|render + write published snapshot| D1
-  App -->|notify| FeedDO
-  Auth --> D1
-  Auth --> KV
-  Page -->|"SSR fetch"| App
-  Page <-->|"SSE: 'post published'"| FeedDO
+      ┌──────────────────────────┐                 ┌──────────────────────────┐
+      │ Ben's browser            │                 │ Reader's browser         │
+      │   Tiptap / ProseMirror   │                 │   Published post         │
+      │   editor                 │                 │   (SSR HTML, no editor   │
+      │   automerge-repo +       │                 │   JS)                    │
+      │   IndexedDB (local truth)│                 │                          │
+      └────────────┬─────────────┘                 └───┬──────────────────┬───┘
+                   │                                   │ GET / SSR        ▲ SSE
+        WebSocket  │  Automerge sync  ⇅                ▼  (HTTP)          │ "published"
+                   │                                   │                  │
+ ══════════════════╪═══════════════ CLOUDFLARE ════════╪══════════════════╪═════════════
+                   │                                   │                  │
+      ┌────────────▼─────────────┐   ┌─────────────────▼┐  ┌──────────────┴───────────┐
+      │ SyncDocDO                │   │ SvelteKit Worker │  │ ReaderFeedDO             │
+      │ (Durable Object)         │   │  SSR · app shell │  │ (Durable Object)         │
+      │ live doc + WebSocket hub │   │  · API · auth ·  │  │ SSE fan-out to readers   │
+      │                          │   │  publish RPC     │  └──────────────────────────┘
+      └────────────┬─────────────┘   └────────┬─────────┘            ▲
+                   │ persist / load           │ read + write          │ notify on publish
+                   ▼                          ▼                       │
+      STORAGE  (Cloudflare bindings)                                  │
+        R2  — Automerge change/snapshot blobs   (your writing, durable)
+        D1  — doc/branch registry · published index · passkey credential ──┘
+        KV  — WebAuthn challenges · sessions
 ```
 
 ---
@@ -157,38 +153,48 @@ On Cloudflare the "services" are **Workers + Durable Objects + bound storage**. 
 - **Intra-edge (Publish → Reader-feed DO):** DO stub binding / internal fetch.
 
 ### Writing sequence
-```mermaid
-sequenceDiagram
-  participant B as Browser (editor)
-  participant R as automerge-repo
-  participant S as SyncDocDO
-  participant R2 as R2
-  participant D1 as D1
-  B->>R: keystroke → Automerge change (instant, local)
-  R-->>R: persist to IndexedDB
-  R->>S: sync change (WebSocket)
-  S->>S: merge into live doc
-  S->>R2: persist change/snapshot
-  S->>D1: update metadata (heads, updatedAt)
-  S-->>R: broadcast to Ben's other devices
+```
+  Browser           automerge-repo        SyncDocDO          R2 + D1
+  (editor)          (+ IndexedDB)         (Durable Object)   (storage)
+     │                    │                    │                 │
+     │ keystroke →        │                    │                 │
+     │ Automerge change   │                    │                 │
+     ├───────────────────▶│                    │                 │
+     │                    │ persist locally    │                 │
+     │                    │ (instant, offline) │                 │
+     │                    │                    │                 │
+     │                    │  sync change ── WebSocket ──▶         │
+     │                    ├───────────────────▶│                 │
+     │                    │                    │ merge into doc  │
+     │                    │                    ├────────────────▶│ persist change
+     │                    │                    │                 │ + update heads
+     │                    │ broadcast to your  │                 │
+     │                    │ other devices      │                 │
+     │                    │◀───────────────────┤                 │
+     ▼                    ▼                    ▼                 ▼
 ```
 
 ### Reading sequence
-```mermaid
-sequenceDiagram
-  participant Rd as Reader browser
-  participant App as SvelteKit Worker
-  participant D1 as D1
-  participant F as ReaderFeedDO
-  participant P as Publish
-  Rd->>App: GET /writing/slug
-  App->>D1: read published HTML
-  App-->>Rd: SSR page (no editor JS) + open SSE
-  Rd->>F: SSE subscribe
-  Note over P: later, Ben hits "publish"
-  P->>D1: write rendered HTML + index
-  P->>F: notify "published: slug"
-  F-->>Rd: SSE event → page updates live (no refresh)
+```
+  Reader            SvelteKit Worker      D1               ReaderFeedDO
+  browser           (SSR + publish)                        (SSE hub)
+     │                    │                 │                   │
+     │ GET /writing/slug  │                 │                   │
+     ├───────────────────▶│                 │                   │
+     │                    │ read published  │                   │
+     │                    ├────────────────▶│                   │
+     │ SSR page (no editor JS)              │                   │
+     │◀───────────────────┤                 │                   │
+     │ open SSE stream  ───────────────────────────────────────▶│
+     │                    │                 │                   │
+     :  … later, Ben hits "publish" (authenticated RPC) …       │
+     │                    │ render + write  │                   │
+     │                    ├────────────────▶│ published HTML    │
+     │                    │ notify "published: slug"            │
+     │                    ├────────────────────────────────────▶│
+     │ SSE event → page swaps in new post live (no refresh)     │
+     │◀─────────────────────────────────────────────────────────┤
+     ▼                    ▼                 ▼                   ▼
 ```
 
 ---
