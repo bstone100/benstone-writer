@@ -1,0 +1,15 @@
+{
+  "name": "benstone-writer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "check": "pnpm -r --if-present check",
+    "lint": "pnpm -r --if-present lint"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
+  }
+}
