@@ -21,7 +21,9 @@
   import { EditorView } from "prosemirror-view";
   import { keymap } from "prosemirror-keymap";
   import { baseKeymap } from "prosemirror-commands";
-  import { history, undo, redo } from "prosemirror-history";
+  import { history } from "prosemirror-history";
+  import { buildKeymap } from "./editor/keymap";
+  import { buildInputRules } from "./editor/inputrules";
   import { placeholder } from "./placeholder";
   import { vtName } from "./motion";
   import Prose from "./Prose.svelte";
@@ -84,13 +86,17 @@
           doc: pmDoc,
           plugins: [
             history(),
-            keymap({ "Mod-z": undo, "Mod-y": redo, "Mod-Shift-z": redo }),
+            keymap(buildKeymap(schema)), // marks · lists · history · hard-break
             keymap(baseKeymap),
+            buildInputRules(schema), // markdown-as-you-type (## , - , > , ``` , ---)
             placeholder("Begin writing…"),
             plugin, // the Automerge ↔ ProseMirror sync plugin (must be last)
           ],
         }),
       });
+      // Dev-only handle for programmatic verification (stripped from prod builds
+      // by the DEV constant — never ships).
+      if (import.meta.env.DEV) (bodyEl as unknown as { pmView?: EditorView }).pmView = view;
     });
 
     return () => {
