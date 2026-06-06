@@ -4,7 +4,7 @@ import { isOwner } from "$lib/server/access";
 // The private surface (§11.6). Everything else — the public reading plane — is
 // open by default. Structure beats per-route checks: one gate, public-by-default.
 function isPrivate(pathname: string): boolean {
-  return pathname.startsWith("/studio") || pathname.startsWith("/api/publish");
+  return pathname.startsWith("/studio") || pathname.startsWith("/api/rpc");
 }
 
 export const handle: Handle = async ({ event, resolve }) => {

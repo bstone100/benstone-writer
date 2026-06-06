@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { P, parsePath, DocumentSchema, PublishedPostSchema, PublishRequestSchema } from "./index";
+import {
+  P,
+  parsePath,
+  DocumentSchema,
+  PublishedPostSchema,
+  PublishRequestSchema,
+  RpcContract,
+  FeedEventSchema,
+} from "./index";
 
 describe("P — typed path builders (§11.1)", () => {
   it("builds document paths", () => {
@@ -44,5 +52,32 @@ describe("schemas validate the data contract (§14)", () => {
     expect(PublishRequestSchema.safeParse(req).success).toBe(true);
     expect(PublishRequestSchema.safeParse(post).success).toBe(true); // extra key tolerated
     expect(PublishRequestSchema.safeParse({ slug: "s" }).success).toBe(false); // missing fields
+  });
+});
+
+describe("RPC contract — define-once, zod-parsed at ingress (§14.1.B)", () => {
+  const req = { slug: "s", title: "t", html: "<p>x</p>", excerpt: "x", sourceId: "d1" };
+  it("publish: validates input + output", () => {
+    expect(RpcContract.publish.input.safeParse(req).success).toBe(true);
+    expect(RpcContract.publish.input.safeParse({ slug: "s" }).success).toBe(false);
+    expect(RpcContract.publish.output.safeParse({ slug: "s", publishedAt: 1 }).success).toBe(true);
+    expect(RpcContract.publish.output.safeParse({ slug: "s" }).success).toBe(false);
+  });
+  it("unpublish: validates input + output", () => {
+    expect(RpcContract.unpublish.input.safeParse({ slug: "s" }).success).toBe(true);
+    expect(RpcContract.unpublish.input.safeParse({}).success).toBe(false);
+    expect(RpcContract.unpublish.output.safeParse({ ok: true }).success).toBe(true);
+    expect(RpcContract.unpublish.output.safeParse({ ok: false }).success).toBe(false);
+  });
+});
+
+describe("FeedEvent — discriminated union (§14.1.C)", () => {
+  it("accepts both variants", () => {
+    expect(FeedEventSchema.safeParse({ type: "published", slug: "s", updatedAt: 1 }).success).toBe(true);
+    expect(FeedEventSchema.safeParse({ type: "unpublished", slug: "s" }).success).toBe(true);
+  });
+  it("rejects a published event missing updatedAt, and an unknown type", () => {
+    expect(FeedEventSchema.safeParse({ type: "published", slug: "s" }).success).toBe(false);
+    expect(FeedEventSchema.safeParse({ type: "edited", slug: "s" }).success).toBe(false);
   });
 });

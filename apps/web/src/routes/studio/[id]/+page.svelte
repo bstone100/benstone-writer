@@ -2,6 +2,7 @@
   import { goto } from "$app/navigation";
   import { branchHere } from "@bw/data";
   import { Editor, History, BranchPicker, Bar, Stack, Link, Text, Button, renderForPublish } from "@bw/ui";
+  import { rpc } from "$lib/rpc";
   import type { PageData } from "./$types";
 
   let { data }: { data: PageData } = $props();
@@ -25,15 +26,8 @@
     publishing = true;
     try {
       const req = await renderForPublish(id); // render to static HTML, client-side
-      const res = await fetch("/api/publish", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(req),
-      });
-      if (res.ok) {
-        const { slug } = (await res.json()) as { slug: string };
-        window.open(`/writing/${slug}`, "_blank");
-      }
+      const { slug } = await rpc.publish(req); // typed RPC — input/output inferred from the contract
+      window.open(`/writing/${slug}`, "_blank");
     } finally {
       publishing = false;
     }

@@ -45,3 +45,7 @@ export function getPost(slug: string): PublishedPost | undefined {
 export function listPosts(): PublishedPost[] {
   return [...store.values()].sort((a, b) => b.publishedAt - a.publishedAt);
 }
+
+export function deletePost(slug: string): void {
+  if (store.delete(slug)) persist();
+}

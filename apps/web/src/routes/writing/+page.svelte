@@ -10,7 +10,9 @@
   // Live (§7 #5): any publish refreshes the index in place — no reload/poll.
   onMount(() => {
     const es = new EventSource("/api/feed");
-    es.addEventListener("published", () => void invalidateAll());
+    const refresh = () => void invalidateAll(); // publish adds a post, unpublish removes one
+    es.addEventListener("published", refresh);
+    es.addEventListener("unpublished", refresh);
     return () => es.close();
   });
 </script>

@@ -43,14 +43,42 @@ export const PublishRequestSchema = PublishedPostSchema.omit({ publishedAt: true
 export type PublishRequest = z.infer<typeof PublishRequestSchema>;
 
 /**
- * Reader-feed event (§7 #5) — pushed over SSE to open readers when a post is
- * published/updated, so the page updates in place (never a reload/poll). The
- * one wire shape the feed server emits and the reader client parses.
+ * Reader-feed events (§7 #5, §14.1.C) — pushed over SSE to open readers so the
+ * page updates in place (never a reload/poll). Defined once; the feed server
+ * emits these and the reader client parses them. A discriminated union: a
+ * (re)publish carries `updatedAt`; an unpublish just the slug.
  */
-export interface FeedEvent {
-  type: "published";
-  slug: string;
-}
+export const FeedEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("published"), slug: z.string(), updatedAt: z.number() }),
+  z.object({ type: z.literal("unpublished"), slug: z.string() }),
+]);
+export type FeedEvent = z.infer<typeof FeedEventSchema>;
+
+/**
+ * The RPC surface (§14.1.B) — define-once, both sides derive. Browser → Worker
+ * imperative verbs ONLY; content edits are NOT here (those are local mutate() →
+ * Automerge → synced). Each verb names an input + output Zod schema; the server
+ * zod-parses input on ingress and the typed client (apps/web/src/lib/rpc.ts)
+ * infers both ends from this one object. The surface is deliberately tiny —
+ * local-first means almost nothing needs the server — so a thin typed contract
+ * is the right tool; a full RPC framework (oRPC) is the drop-in only if the
+ * surface ever grows or a non-TS client appears (§14, §17.7).
+ */
+export const RpcContract = {
+  /** Store a client-rendered post + notify the reader-feed. */
+  publish: {
+    input: PublishRequestSchema,
+    output: z.object({ slug: z.string(), publishedAt: z.number() }),
+  },
+  /** Remove a published post + notify the reader-feed. */
+  unpublish: {
+    input: z.object({ slug: z.string() }),
+    output: z.object({ ok: z.literal(true) }),
+  },
+} as const;
+export type RpcVerb = keyof typeof RpcContract;
+export type RpcInput<V extends RpcVerb> = z.infer<(typeof RpcContract)[V]["input"]>;
+export type RpcOutput<V extends RpcVerb> = z.infer<(typeof RpcContract)[V]["output"]>;
 
 /** Typed path builders — the only sanctioned way to construct a Path. */
 export const P = {
