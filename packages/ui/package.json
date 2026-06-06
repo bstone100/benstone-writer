@@ -1,0 +1,26 @@
+{
+  "name": "@bw/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "svelte": "./src/index.ts",
+  "exports": {
+    ".": {
+      "svelte": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./tokens.css": "./src/tokens.css"
+  },
+  "dependencies": {
+    "@automerge/prosemirror": "^0.2.0",
+    "@bw/data": "workspace:*",
+    "@bw/schema": "workspace:*",
+    "prosemirror-commands": "^1.7.1",
+    "prosemirror-history": "^1.5.0",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-model": "^1.25.7",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-view": "^1.41.8",
+    "svelte": "^5.56.2"
+  }
+}

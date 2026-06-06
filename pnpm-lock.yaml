@@ -14,33 +14,15 @@ importers:
 
   apps/web:
     dependencies:
-      '@automerge/prosemirror':
-        specifier: ^0.2.0
-        version: 0.2.0
       '@bw/data':
         specifier: workspace:*
         version: link:../../packages/data
       '@bw/schema':
         specifier: workspace:*
         version: link:../../packages/schema
-      prosemirror-commands:
-        specifier: ^1.7.1
-        version: 1.7.1
-      prosemirror-history:
-        specifier: ^1.5.0
-        version: 1.5.0
-      prosemirror-keymap:
-        specifier: ^1.2.3
-        version: 1.2.3
-      prosemirror-model:
-        specifier: ^1.25.7
-        version: 1.25.7
-      prosemirror-state:
-        specifier: ^1.4.4
-        version: 1.4.4
-      prosemirror-view:
-        specifier: ^1.41.8
-        version: 1.41.8
+      '@bw/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
     devDependencies:
       '@sveltejs/adapter-cloudflare':
         specifier: ^7.2.8
@@ -90,6 +72,39 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+
+  packages/ui:
+    dependencies:
+      '@automerge/prosemirror':
+        specifier: ^0.2.0
+        version: 0.2.0
+      '@bw/data':
+        specifier: workspace:*
+        version: link:../data
+      '@bw/schema':
+        specifier: workspace:*
+        version: link:../schema
+      prosemirror-commands:
+        specifier: ^1.7.1
+        version: 1.7.1
+      prosemirror-history:
+        specifier: ^1.5.0
+        version: 1.5.0
+      prosemirror-keymap:
+        specifier: ^1.2.3
+        version: 1.2.3
+      prosemirror-model:
+        specifier: ^1.25.7
+        version: 1.25.7
+      prosemirror-state:
+        specifier: ^1.4.4
+        version: 1.4.4
+      prosemirror-view:
+        specifier: ^1.41.8
+        version: 1.41.8
+      svelte:
+        specifier: ^5.56.2
+        version: 5.56.2
 
 packages:
 
