@@ -11,6 +11,7 @@
     "@automerge/automerge-repo": "^2.5.6",
     "@automerge/automerge-repo-storage-indexeddb": "2.5.6",
     "@bw/schema": "workspace:*",
+    "cborg": "^4.5.8",
     "svelte": "^5.56.2"
   }
 }

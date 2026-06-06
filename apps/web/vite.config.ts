@@ -6,7 +6,8 @@ export default defineConfig({
 	plugins: [wasm(), sveltekit()],
 	optimizeDeps: {
 		// Automerge ships WASM; let Vite serve it raw (vite-plugin-wasm) instead of
-		// pre-bundling, which breaks the WASM import.
+		// pre-bundling, which breaks the WASM import. automerge-repo stays
+		// pre-bundled (fixes eventemitter3's CJS default-import interop).
 		exclude: ['@automerge/automerge']
 	},
 	build: { target: 'esnext' },

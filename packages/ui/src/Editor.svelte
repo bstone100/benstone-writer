@@ -14,7 +14,7 @@
 -->
 <script lang="ts">
   import { onMount } from "svelte";
-  import { read, mutate, getHandle } from "@bw/data";
+  import { read, mutate, getHandle, enableSync } from "@bw/data";
   import { P } from "@bw/schema";
   import { init } from "@automerge/prosemirror";
   import { EditorState } from "prosemirror-state";
@@ -64,6 +64,9 @@
   });
 
   onMount(() => {
+    // Open this document's cloud sync (§8.1). Background; typing never waits.
+    enableSync(id);
+
     // Title: self-subscribe by path (§11.1). Auto-unsubscribes on unmount.
     const titleStore = read<string>(P.document(id).title);
     const unsubTitle = titleStore.subscribe((v) => (title = v));

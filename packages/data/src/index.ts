@@ -1,7 +1,19 @@
 import { Repo, type DocHandle, type AnyDocumentId } from "@automerge/automerge-repo";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
+import { BrowserWSClientAdapter } from "./ws-client-adapter";
 import { readable, type Readable } from "svelte/store";
 import { parsePath, type Document, type Path } from "@bw/schema";
+
+/**
+ * Cloud sync wiring (§8.1). A document syncs to its Durable Object only once
+ * `enableSync(id)` is called for it — so the sharePolicy below announces ONLY
+ * those docs to cloud peers, and nothing leaks. One WebSocket per open doc
+ * (one DO per document). Dev points at the standalone sync Worker on :8787;
+ * in production one Worker serves app + sync (wss://<host>/sync), wired at deploy.
+ */
+const SYNC_BASE = "ws://localhost:8787/sync";
+const syncedDocs = new Set<string>();
+const syncAdapters = new Map<string, BrowserWSClientAdapter>();
 
 /**
  * The single browser-local Automerge repo — the local-first source of truth
@@ -11,9 +23,27 @@ import { parsePath, type Document, type Path } from "@bw/schema";
 let _repo: Repo | undefined;
 function repo(): Repo {
   if (!_repo) {
-    _repo = new Repo({ storage: new IndexedDBStorageAdapter("benstone-writer") });
+    _repo = new Repo({
+      storage: new IndexedDBStorageAdapter("benstone-writer"),
+      // Announce a doc to cloud peers only after it's been opened for sync.
+      sharePolicy: async (_peerId, documentId) =>
+        documentId != null && syncedDocs.has(documentId as string),
+    });
   }
   return _repo;
+}
+
+/**
+ * enableSync(documentId) — connect this document to its cloud Durable Object so
+ * local changes sync to R2 + across devices (§8.1). Idempotent; opens one
+ * WebSocket to the doc's DO. Writes never await it — sync is background (§11.4).
+ */
+export function enableSync(documentId: string): void {
+  if (syncedDocs.has(documentId)) return;
+  syncedDocs.add(documentId);
+  const adapter = new BrowserWSClientAdapter(`${SYNC_BASE}/${documentId}`);
+  syncAdapters.set(documentId, adapter);
+  repo().networkSubsystem.addNetworkAdapter(adapter);
 }
 
 /** Cache handles (by id) so reads/writes after the first find are instant. */

@@ -63,6 +63,9 @@ importers:
       '@bw/schema':
         specifier: workspace:*
         version: link:../schema
+      cborg:
+        specifier: ^4.5.8
+        version: 4.5.8
       svelte:
         specifier: ^5.56.2
         version: 5.56.2
