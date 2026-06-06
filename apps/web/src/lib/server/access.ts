@@ -2,6 +2,7 @@ import { dev } from "$app/environment";
 import { env } from "$env/dynamic/private";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { RequestEvent } from "@sveltejs/kit";
+import { decideOwner } from "./access-policy";
 
 /**
  * Cloudflare Access verification (§13) — the ONLY auth code we own.
@@ -54,7 +55,5 @@ async function accessOwnerEmail(event: RequestEvent): Promise<string | null> {
  *    the Cloudflare Access EDGE regardless — so this is not a production bypass.
  */
 export async function isOwner(event: RequestEvent): Promise<boolean> {
-  const email = await accessOwnerEmail(event);
-  if (email) return Boolean(OWNER_EMAIL) && email === OWNER_EMAIL;
-  return dev;
+  return decideOwner(await accessOwnerEmail(event), OWNER_EMAIL, dev);
 }

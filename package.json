@@ -7,9 +7,11 @@
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
     "check": "pnpm -r --if-present check",
-    "lint": "pnpm -r --if-present lint"
+    "lint": "pnpm -r --if-present lint",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.8"
   }
 }
