@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { vtName } from "@bw/ui/motion";
+  import { P } from "@bw/schema";
   import type { PageData } from "./$types";
   let { data }: { data: PageData } = $props();
 </script>
@@ -16,7 +18,9 @@
       {#each data.posts as post (post.slug)}
         <li>
           <a href={`/writing/${post.slug}`}>
-            <span class="t">{post.title || "Untitled"}</span>
+            <span class="t" style:view-transition-name={vtName(P.published(post.slug))}>
+              {post.title || "Untitled"}
+            </span>
             {#if post.excerpt}<span class="e">{post.excerpt}</span>{/if}
           </a>
         </li>

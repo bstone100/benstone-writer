@@ -1,0 +1,26 @@
+/*
+ * Motion base (§12) — declared ONCE, applied everywhere. Opts the whole site
+ * into cross-document View Transitions, so navigating between pages animates by
+ * default. Pure CSS: it works even on the zero-JS public reader. Elements that
+ * set a `view-transition-name` (from vtName, derived from the entity's path)
+ * morph between pages — shared-element identity; everything else cross-fades.
+ *
+ * All compositor-driven (transform/opacity), brief, and token-timed.
+ */
+@view-transition {
+  navigation: auto;
+}
+
+/* Token-timed, eased — not the default linear 250ms cross-fade. */
+::view-transition-group(*) {
+  animation-duration: var(--dur-slow, 320ms);
+  animation-timing-function: var(--ease-out, ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

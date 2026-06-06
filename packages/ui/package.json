@@ -13,7 +13,12 @@
       "svelte": "./src/reader.ts",
       "default": "./src/reader.ts"
     },
-    "./tokens.css": "./src/tokens.css"
+    "./motion": {
+      "svelte": "./src/motion.ts",
+      "default": "./src/motion.ts"
+    },
+    "./tokens.css": "./src/tokens.css",
+    "./motion.css": "./src/motion.css"
   },
   "dependencies": {
     "@automerge/prosemirror": "^0.2.0",

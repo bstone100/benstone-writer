@@ -8,8 +8,9 @@
   schema at publish time, which can only emit known nodes/marks.
 -->
 <script lang="ts">
-  import type { PublishedPost } from "@bw/schema";
+  import { P, type PublishedPost } from "@bw/schema";
   import Prose from "./Prose.svelte";
+  import { vtName } from "./motion";
 
   let { post }: { post: PublishedPost } = $props();
 
@@ -24,7 +25,9 @@
 
 <article class="reader">
   <Prose>
-    <h1 class="rtitle">{post.title || "Untitled"}</h1>
+    <h1 class="rtitle" style:view-transition-name={vtName(P.published(post.slug))}>
+      {post.title || "Untitled"}
+    </h1>
     <p class="rmeta">{date}</p>
     {@html post.html}
   </Prose>

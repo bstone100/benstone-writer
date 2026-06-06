@@ -7,3 +7,7 @@ dist/
 
 # scratch screenshots from browser verification
 .tmp-*.png
+
+# dev-only publish store (D1 in prod)
+.dev-published.json
+**/.dev-published.json

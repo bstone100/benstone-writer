@@ -1,5 +1,6 @@
 <script lang="ts">
 	import '@bw/ui/tokens.css';
+	import '@bw/ui/motion.css';
 	import favicon from '$lib/assets/favicon.svg';
 
 	let { children } = $props();
