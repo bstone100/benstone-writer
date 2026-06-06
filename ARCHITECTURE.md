@@ -201,10 +201,24 @@ On Cloudflare the "services" are **Workers + Durable Objects + bound storage**. 
 
 ## 8. Authoring data flow (detail)
 
-- Client constructs an **automerge-repo `Repo`** with: `IndexedDBStorageAdapter` (Tier 0) + a **WebSocket network adapter** pointed at `SyncDocDO` (Tier 1). ⚠️ The WS adapter ↔ Cloudflare DO wiring is the main thing to verify (§17).
-- Editor binds to the doc's text field via `@automerge/prosemirror` — Tiptap transactions become Automerge changes and vice-versa.
-- **Offline:** automerge-repo keeps working against IndexedDB; reconnect replays buffered changes; CRDT merge converges (single author → effectively last-writer-wins per field, which is correct).
-- **Versioning/branching:** the doc's change DAG is the history. "Continue from here" = `clone(view(doc, oldHeads))` → register a new branch row in D1 → set `liveBranchId`. The previously-live branch persists as an abandoned branch (nothing deleted). Merge = `merge()` (CRDT auto-resolve; surface only rare semantic conflicts). History UI shows changes **grouped into edit-sessions** (store fine, display coarse — the Google Docs lesson).
+- **Client:** an `automerge-repo` `Repo` with `IndexedDBStorageAdapter` (Tier 0, local source of truth) + the **stock `WebSocketClientAdapter`** from `@automerge/automerge-repo-network-websocket` (runs in the browser unchanged), pointed at `wss://<app>/sync/{documentId}`.
+- Editor binds to the doc's text via `@automerge/prosemirror` — Tiptap transactions become Automerge changes and back.
+- **Offline:** automerge-repo works against IndexedDB; reconnect replays buffered changes; CRDT merge converges (single author → per-field last-writer-wins, which is correct).
+- **Versioning / branching:** the change DAG is the history, and **each branch is its own Automerge document** (its own `documentId` / DO / R2 prefix); the fork relationship lives **relationally in D1** (`branches.parent_document_id`, `branches.fork_at_heads`, `liveBranchId`). "Continue from here" = `clone(view(doc, oldHeads))` → new branch document + registry row → repoint `liveBranchId`; the old branch persists untouched (nothing deleted). This makes compaction per-branch and **fork-point corruption structurally impossible** — we never `removeDoc` an ancestor referenced by a live branch (all deletes gated on the registry). History UI groups changes into edit-sessions (store fine, display coarse).
+
+### 8.1 — Sync wiring: Automerge ↔ Cloudflare (resolved — was §17.1)
+The one genuinely-open piece, now specified. **No turnkey package exists; the reference to follow is [`substrate-system/mergeparty`](https://github.com/substrate-system/mergeparty)** — a real `Repo` running inside a Durable Object where the DO object implements *both* the storage and network adapters. The official `WebSocketServerAdapter` is Node/`ws`-only and won't run in Workers, so we port mergeparty's hand-rolled sync protocol onto raw DO handlers. Concretely:
+
+- **`SyncDocDO` — one Durable Object per document** (`idFromName(documentId)`; confirmed correct for a single author — independent hibernation, bounded memory, isolation; mirrors the proven "one room per document"). On first message it builds an in-memory `Repo({ storage: R2StorageAdapter, network: <hibernatable-WS adapter>, sharePolicy: () => true, peerId: 'server:'+docId })`.
+- **Hibernatable WebSockets:** `ctx.acceptWebSocket(ws, [peerId])`; handle `webSocketMessage`/`webSocketClose`; `setWebSocketAutoResponse('ping','pong')` so heartbeats don't wake the object (or bill). The DO hibernates between sync bursts; on wake the **`Repo` is a rebuildable cache over R2** — lazily `repo.find(documentId)` reloads from storage. (The one sharp edge: never assume in-memory doc state survives hibernation; test a full hibernate→wake→sync cycle.)
+- **`R2StorageAdapter`** (we build it — ~5 methods over the **native R2 binding**, not the S3 SDK), using automerge-repo's own content-addressed key layout (dedupe is automatic):
+  - `{documentId}/snapshot/{headsHash}`
+  - `{documentId}/incremental/{sha256(change)}`
+  - `{documentId}/sync-state/{storageId}`
+- **Compaction is built into automerge-repo** (it snapshots + deletes superseded chunks once incrementals outgrow the snapshot, losslessly) — **no Cron needed for correctness**; an optional Workers Cron only warm-snapshots idle docs + sweeps R2 orphans.
+- **Auth at the upgrade:** validate the session **cookie** in `fetch()` *before* `acceptWebSocket()` (browsers can't set WS headers; the cookie rides the upgrade), then `serializeAttachment` the identity so it survives hibernation.
+- **Runtime gotchas (confirmed, mandatory):** use **`cborg`** for CBOR (`cbor-x` breaks in the Workers runtime) and shim `globalThis.performance ??= { now: () => Date.now() }` for the Automerge WASM.
+- **Honest scope:** the DO sync server + the R2 adapter are **ours to build and test** (~one focused session), with mergeparty as a near-exact blueprint. WASM cold-start on a cold DO is the only perf watch-item.
 
 ---
 
@@ -346,10 +360,10 @@ Not an MVP-first dogfood ladder; a dependency order for **building the whole thi
 
 ## 17. ⚠️ Open questions to drive out before this is one-pass-implementable
 
-1. **Automerge-repo ↔ Cloudflare Durable Object sync wiring** (the big one). Exact: WebSocket network adapter compatible with DO WS; running the automerge-repo sync protocol inside a DO; prior art / reference implementations; whether to use hibernatable WS. **Needs a focused research/verification pass.**
-2. **R2 as automerge-repo storage** — is there a maintained `StorageAdapter` for R2, or do we implement the (small) `StorageAdapter` interface against R2 ourselves? Confirm.
-3. **DO sharding:** one `SyncDocDO` per document-family vs a single "library" DO for one author. (Per-doc = clean isolation/scale; single = simpler. For one author, lean simple?)
-4. **History compaction** strategy & cadence (snapshot + trim in R2) and how it interacts with branch ancestry.
+1. ✅ **RESOLVED — Automerge ↔ Cloudflare sync wiring** (see §8.1). Per-doc `SyncDocDO` with hibernatable WebSockets; the DO is both storage + network adapter; reference impl `substrate-system/mergeparty`; we port the protocol onto raw DO handlers. No turnkey package — ~one focused session to build + test.
+2. ✅ **RESOLVED — R2 storage** (§8.1). No maintained adapter; we implement the ~5-method `StorageAdapter` over the native R2 binding (automerge-repo's content-addressed key layout → auto-dedupe).
+3. ✅ **RESOLVED — DO sharding.** One DO **per document** (not a library DO): independent hibernation, bounded memory, isolation; the D1 registry enumerates docs. Correct even for one author.
+4. ✅ **RESOLVED — compaction.** Built into automerge-repo (self-compacts, lossless) — no Cron needed for correctness; branch ancestry kept safe by modeling each branch as its own document (§8) + gating deletes on the registry. Optional Cron only warm-snapshots idle docs.
 5. **Reader live-update granularity:** SSE event-only + client refetch, vs push rendered content in the event.
 6. **Authoring app rendering:** the editor is client-only (SPA island); public is SSR. Confirm the SvelteKit route split (private SPA vs public SSR) and that the editor never SSRs.
 7. **oRPC vs tRPC v11 vs Hono RPC** for the thin imperative layer (minor).
@@ -358,4 +372,4 @@ Not an MVP-first dogfood ladder; a dependency order for **building the whole thi
 
 ---
 
-*v0.1 — refine aggressively. The biggest unknown is §17.1 (Automerge-on-Cloudflare sync); everything else is well-trodden.*
+*v0.2 — §17.1–17.4 resolved (sync wiring specified in §8.1). Remaining open items are minor (reader-update granularity, route split, RPC choice, doc schema, migration). The shape is locked; the how is largely nailed.*
