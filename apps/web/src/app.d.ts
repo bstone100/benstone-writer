@@ -3,7 +3,10 @@
 declare global {
 	namespace App {
 		// interface Error {}
-		// interface Locals {}
+		interface Locals {
+			/** True only for the site owner (Cloudflare Access verified, or dev). */
+			owner: boolean;
+		}
 		// interface PageData {}
 		// interface PageState {}
 		// interface Platform {}

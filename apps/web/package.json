@@ -24,6 +24,7 @@
 	"dependencies": {
 		"@bw/data": "workspace:*",
 		"@bw/schema": "workspace:*",
-		"@bw/ui": "workspace:*"
+		"@bw/ui": "workspace:*",
+		"jose": "^6.2.3"
 	}
 }

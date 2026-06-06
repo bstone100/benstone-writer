@@ -22,6 +22,11 @@ export default {
     const documentId = match[1];
     if (!documentId) return new Response("missing document id", { status: 400 });
 
+    // SECURITY (§13, deploy): in production this Worker is same-origin behind
+    // Cloudflare Access, so the WS upgrade carries the Access assertion / the
+    // CF_Authorization cookie — verify it here (owner only) BEFORE forwarding the
+    // upgrade to the DO, and reject otherwise. Dev is localhost (no edge), so the
+    // socket is open. See docs/AUTH.md. (Not yet wired — sync is dev-only today.)
     const id = env.SYNC_DOC.idFromName(documentId);
     return env.SYNC_DOC.get(id).fetch(request);
   },

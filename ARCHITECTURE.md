@@ -358,12 +358,14 @@ Motion is not a layer bolted on; it is **how the user learns the shape of the da
 
 ## 13. Auth & security
 
-- **Passkeys** via `@simplewebauthn/server` on the Worker; one credential (Face/Touch ID). `rpID` = eTLD+1, **pinned day one, never changed**.
-- **Storage:** credential in D1; challenge in KV (5-min TTL); session = opaque id in KV (revocable) behind an **`__Host-` `HttpOnly; Secure; SameSite=Strict`** cookie.
-- **Authorization:** one route-scoped middleware — everything under the authoring/API write prefix requires the session; everything else is public-by-default (structure beats behavior). The `SyncDocDO` WS upgrade also checks the session.
-- **CSRF:** SameSite=Strict + Origin check on writes.
-- **Recovery (single-user safety):** iCloud Keychain sync (passkey already on all his Apple devices) + a registered 2nd credential (YubiKey) + a `wrangler secret` break-glass token. Don't get locked out.
-- **Not used:** Cloudflare Access (can't do native Touch ID without an upstream IdP) and managed auth providers (over-engineered for one user).
+**The dominant constraint is that this repo is public/open-source** — assume an attacker reads 100% of the source (and points an LLM at it). So the goal isn't "a clever auth system," it's **own as little security-critical code as possible** and offload the hard parts to audited infrastructure. The job is also narrow: *authenticate the one owner, nobody else* — a single-admin gate, not a user system.
+
+- **Cloudflare Access at the edge** gates the private surface; the login UI, identity provider, sessions, and the allow-list **policy live in Cloudflare config — not in this repo, and not as secrets we hold.** The IdP can be GitHub/Google/one-time-PIN (passkey-capable upstream if wanted), so we get good login UX without owning any of it. Free at this scale.
+- **The only auth code we own** is `apps/web/src/lib/server/access.ts` (~40 lines): it re-verifies the edge's signed assertion (`Cf-Access-Jwt-Assertion` against the team JWKS via `jose`) and checks `email === OWNER_EMAIL`. This is **defense-in-depth** (a leaked origin URL still can't get in) and the source of the owner identity; **fail-closed** in prod.
+- **Authorization:** one gate (`hooks.server.ts`) over `/studio` + `/api/publish`; everything else public-by-default (structure beats behavior). `/api/me` is the out-of-band owner-probe that lets a **cacheable, anonymous** public page reveal an Edit control for the owner without varying its HTML (§11.5). The `SyncDocDO` WS upgrade is gated in prod (same-origin ⇒ the Access cookie rides the upgrade; verify before forwarding to the DO).
+- **Config (non-secret → Cloudflare `[vars]`):** `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OWNER_EMAIL`. **No committed secrets** (Cloudflare holds the OAuth client secret); CI secret-scan (gitleaks) before going public. Setup steps in **`docs/AUTH.md`**.
+- **Dev:** no edge in front of `vite dev`, so `localhost` is treated as the owner (`dev` is compile-time false in prod; the edge gates prod regardless — not a production bypass). Full flow verifies at deploy.
+- **Rejected, and why** (re-derived once the repo became open-source — this reverses the earlier passkey plan): **hand-rolled passkeys** (`@simplewebauthn` + own sessions) — the ceremony lib is fine, but it's the *largest* bespoke security surface in a public repo and over-engineered for single-admin; **better-auth** — young (2025), no public audit found, shipped a *critical* unauthenticated account-takeover CVE (CVE-2025-61928) Oct 2025; **Auth.js/@auth/sveltekit** — an open, unverified-fixed OAuth-callback bug on Cloudflare *Workers*; **Clerk/Auth0/WorkOS** — overkill + cost + vendor lock + offsite data for one user; **Sign in with Apple** — $99/yr + a 6-month-rotating client secret, no upside over GitHub/Google for logging into your own site.
 
 ---
 
