@@ -32,8 +32,8 @@ The system is cleanly split into two planes that must **not** be conflated (conf
 
       ┌──────────────────────────┐                 ┌──────────────────────────┐
       │ Ben's browser            │                 │ Reader's browser         │
-      │   Tiptap / ProseMirror   │                 │   Published post         │
-      │   editor                 │                 │   (SSR HTML, no editor   │
+      │   ProseMirror editor     │                 │   Published post         │
+      │   (+ @automerge/pm)      │                 │   (SSR HTML, no editor   │
       │   automerge-repo +       │                 │   JS)                    │
       │   IndexedDB (local truth)│                 │                          │
       └────────────┬─────────────┘                 └───┬──────────────────┬───┘
@@ -86,7 +86,7 @@ Ben's spec: *best practices should be inherent, not disciplined into existence.*
 |---|---|---|---|
 | **SvelteKit** (Svelte 5 runes) | App framework: public SSR + authoring SPA shell + server endpoints | Worker + browser | Fine-grained signals (no re-render-the-world), SFC separation of concerns (no JSX god-files), compiler-as-IoC, motion as a **language primitive**, first-party Cloudflare adapter. |
 | **`@sveltejs/adapter-cloudflare`** | Build/deploy target | Build | Officially recommended path; emits one `_worker.js` (routing+SSR+assets) with D1/KV/R2/DO bindings. |
-| **Tiptap v3** (headless) on **ProseMirror** | The editor | browser | Best long-form typing stability; truly framework-agnostic (no React); zero chrome by default → the "invisible editor"; **Static Renderer** for the public site (no editor JS shipped to readers). |
+| **ProseMirror** (raw, via `@automerge/prosemirror`) | The editor | browser | Long-form typing stability; framework-agnostic (no React) → headless in Svelte; zero chrome by default → the "invisible editor". **No Tiptap:** the Automerge binding is raw-PM-native and owns the schema (its rich-text `SchemaAdapter`); Tiptap would fight it for schema + lifecycle ownership while bundling chrome/extensions we don't want. Public render is `DOMSerializer` (raw PM) over the *same* adapter schema, so edit and publish render identically. Input rules / history / keymaps are official PM packages. |
 | **`@automerge/automerge`** | CRDT document + history/branching | browser + DO (WASM) | Git-like change-DAG → automatic per-keystroke history + `fork`/`merge`/`view` branching with zero ceremony. |
 | **`@automerge/automerge-repo`** | Document sync/storage orchestration | browser + DO | Storage + network **adapters** → local-first now, add a network adapter for sync later with no rework. |
 | **`@automerge/prosemirror`** | Binds editor ↔ Automerge doc | browser | The editor edits the CRDT directly (single `Automerge` doc as source of truth). Vanilla, no React. |
@@ -141,7 +141,7 @@ On Cloudflare the "services" are **Workers + Durable Objects + bound storage**. 
 | 1 | **Web app** | SvelteKit Worker | Public SSR of published posts; serve authoring SPA shell (private routes); host API/RPC/auth endpoints | Browser (HTTP/SSR); D1 (read published); Auth; RPC → Publish |
 | 2 | **Auth** | Hono routes in the Worker | Passkey register/login ceremonies; issue/verify session cookie; guard private routes; authorize the DO WS upgrade | D1 (credential), KV (challenge/session); browser (HTTP) |
 | 3 | **Sync coordinator** | `SyncDocDO` (Durable Object), 1 per document-family | Accept authenticated WS (automerge-repo sync protocol); hold live doc; merge changes; persist to R2; update D1; broadcast to peers | Browser (**WebSocket**); R2 + D1 (bindings) |
-| 4 | **Publish** | Worker endpoint (typed RPC) | On "publish": load live branch from Sync DO/R2, render Automerge→ProseMirror JSON→**static HTML** (Tiptap Static Renderer), write to D1 + cache, notify reader-feed | Authoring client (**RPC**); Sync DO/R2 (read); D1 + Cache (write); Reader-feed (notify) |
+| 4 | **Publish** | Worker endpoint (typed RPC) | On "publish": load live branch from Sync DO/R2, render Automerge spans→ProseMirror node→**static HTML** (`prosemirror-model` `DOMSerializer`, same adapter schema as the editor), write to D1 + cache, notify reader-feed | Authoring client (**RPC**); Sync DO/R2 (read); D1 + Cache (write); Reader-feed (notify) |
 | 5 | **Reader-feed** | `ReaderFeedDO` (Durable Object) | Hold open reader **SSE** streams; on publish event, push "post published/updated" to all readers | Readers (**SSE**, one-way); Publish (internal call/WS) |
 | 6 | **Compaction** | Worker **Cron** | Periodically snapshot + trim Automerge history in R2 | R2 + D1 (bindings) |
 
@@ -202,7 +202,7 @@ On Cloudflare the "services" are **Workers + Durable Objects + bound storage**. 
 ## 8. Authoring data flow (detail)
 
 - **Client:** an `automerge-repo` `Repo` with `IndexedDBStorageAdapter` (Tier 0, local source of truth) + the **stock `WebSocketClientAdapter`** from `@automerge/automerge-repo-network-websocket` (runs in the browser unchanged), pointed at `wss://<app>/sync/{documentId}`.
-- Editor binds to the doc's text via `@automerge/prosemirror` — Tiptap transactions become Automerge changes and back.
+- Editor binds to the doc's text via `@automerge/prosemirror` — ProseMirror transactions become Automerge changes and back.
 - **Offline:** automerge-repo works against IndexedDB; reconnect replays buffered changes; CRDT merge converges (single author → per-field last-writer-wins, which is correct).
 - **Versioning / branching:** the change DAG is the history, and **each branch is its own Automerge document** (its own `documentId` / DO / R2 prefix); the fork relationship lives **relationally in D1** (`branches.parent_document_id`, `branches.fork_at_heads`, `liveBranchId`). "Continue from here" = `clone(view(doc, oldHeads))` → new branch document + registry row → repoint `liveBranchId`; the old branch persists untouched (nothing deleted). This makes compaction per-branch and **fork-point corruption structurally impossible** — we never `removeDoc` an ancestor referenced by a live branch (all deletes gated on the registry). History UI groups changes into edit-sessions (store fine, display coarse).
 
@@ -224,14 +224,14 @@ The one genuinely-open piece, now specified. **No turnkey package exists; the re
 
 ## 9. Reading data flow (detail)
 
-- Published content is **pre-rendered to static HTML** at publish time (Tiptap Static Renderer over the doc's ProseMirror JSON) and stored in D1 (+ edge cache). Readers get SSR HTML, **zero editor/CRDT JS**, instant paint, fully cacheable.
+- Published content is **pre-rendered to static HTML** at publish time (`DOMSerializer` over the doc's ProseMirror node, the same adapter schema the editor uses) and stored in D1 (+ edge cache). Readers get SSR HTML, **zero editor/CRDT JS**, instant paint, fully cacheable.
 - Each reader page opens an **SSE** stream to `ReaderFeedDO`. On publish, the feed pushes an event; the Svelte page reactively swaps in the new/updated post **with no reload** (the non-negotiable live-reader requirement). ⚠️ event-only-then-refetch vs push-the-content-in-the-event — §17.
 
 ---
 
 ## 10. Editor (detail)
 
-- **Tiptap v3 headless**, paragraph-first schema → the screen is just text on a calm, centered measure (iA Writer/Bear feel). **No markdown input**, **no persistent toolbar**.
+- **Raw ProseMirror** (via `@automerge/prosemirror`'s rich-text `SchemaAdapter`), paragraph-first → the screen is just text on a calm, centered measure (iA Writer/Bear feel). **No markdown input**, **no persistent toolbar**.
 - Light structure (heading/quote/list) via a **slash menu** and a **selection bubble** — `/` is a trigger, never syntax that lands in the text. Markdown input rules **off** by default.
 - **Focus mode** (dim non-active paragraph/sentence) and **typewriter scrolling** as opt-in ProseMirror decorations; off by default.
 - Source of truth is the **Automerge doc**, not ProseMirror JSON; `@automerge/prosemirror` keeps them bound. Public render derives ProseMirror JSON → static HTML.
@@ -278,7 +278,7 @@ Every "enforced by" tag below is one of these.
 Your inline-edit requirement actually *tightens* the path principle rather than complicating it:
 - **One article = one Automerge document** at `documents/{id}`. "Published" is state + a cached static render at `published/{slug}`. The reader render and the editor are **two views of the same path**, not two stores.
 - **Reader (unauthed):** SSR static HTML from `published/{slug}`; zero editor JS.
-- **You, on the same URL:** the page checks your session; if it's you, an **Edit** affordance exists. Pressing it lazy-loads the **editor island** (Tiptap + automerge-repo + sync WS) bound to **the same `documents/{id}`** and swaps the static render for the live editor *in place* — fix the typo, autosaved + versioned instantly.
+- **You, on the same URL:** the page checks your session; if it's you, an **Edit** affordance exists. Pressing it lazy-loads the **editor island** (ProseMirror + automerge-repo + sync WS) bound to **the same `documents/{id}`** and swaps the static render for the live editor *in place* — fix the typo, autosaved + versioned instantly.
 - **Auth-gated structurally:** the editor bundle and the authenticated sync socket are only loaded behind the session check; an unauthed reader can neither fetch the editor chunk nor open the socket. The Edit affordance is gated server-side.
 - **Re-publish:** inline edits land in the doc (autosaved, in history); pushing them to readers is the explicit **Publish** (re-render `published/{slug}`, notify the reader-feed). ⚠️ open UX call: for an already-live article, auto-republish small fixes, or require a Publish tap? (I lean: a one-tap "publish this fix," so readers never catch a half-finished edit.)
 
@@ -319,7 +319,7 @@ The fixed set the design system ships; *everything* composes these (style writte
 - **Primitives:** `Button`, `IconButton`, `TextField`, `Link`, `Icon`, `Stack`/`Row`/`Grid` + `Spacer`/`Divider` (layout).
 - **Surfaces / overlays:** `Card`, `Sheet`/`Drawer` (Vaul-style, gesture-driven), `Dialog`, `Popover`, `Tooltip`, `CommandPalette` (⌘K).
 - **Content:** `Prose` (the shared reading/writing measure + typography), `PostListItem`, `Heading`, `Meta`.
-- **App-specific:** `Editor` (Tiptap canvas), `SlashMenu`, `SelectionBubble`, `HistoryScrubber`, `BranchPicker`, `PublishControl`, `EditAffordance`.
+- **App-specific:** `Editor` (ProseMirror canvas), `SlashMenu`, `SelectionBubble`, `HistoryScrubber`, `BranchPicker`, `PublishControl`, `EditAffordance`.
 - All on Melt/Bits headless behavior + tokens; each data-bound component keys its shared-element transition by its **path** (§12). The inventory is the contract: the design system is *real* only because the set is fixed up front, not discovered mid-build.
 
 ---
@@ -428,11 +428,11 @@ All shapes (A–C, E) are defined once in `packages/schema/` and `zod.parse`d at
 Not an MVP-first dogfood ladder; a dependency order for **building the whole thing**, top to bottom, then Ben writes into a finished tool:
 1. Repo scaffold: SvelteKit + adapter-cloudflare + wrangler + bindings + D1 schema + design tokens/component-library skeleton.
 2. Automerge data layer + `entity(path)` façade + automerge-repo (IndexedDB) — local.
-3. Editor: Tiptap headless + `@automerge/prosemirror` + invisible UX + focus mode.
+3. Editor: raw ProseMirror + `@automerge/prosemirror` + invisible UX + focus mode.
 4. Version history + branching UI.
 5. Sync: `SyncDocDO` + WS adapter + R2 persistence + D1 metadata + cross-device.
 6. Auth: passkeys + guard + DO upgrade check.
-7. Publish + public reading plane (SSR + Tiptap static render) + `ReaderFeedDO` SSE live updates.
+7. Publish + public reading plane (SSR + `DOMSerializer` static render) + `ReaderFeedDO` SSE live updates.
 8. Motion pass across the whole UI.
 9. Compaction cron; hardening; perf pass (measured).
 10. Content migration + cutover.

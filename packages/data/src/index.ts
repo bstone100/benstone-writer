@@ -82,17 +82,30 @@ export function mutate(docPath: Path, recipe: (doc: Document) => void): void {
  */
 export function createDocument(initial?: Partial<Document>): string {
   const now = Date.now();
+  // Every document is a writing document: it has a `body` rich-text field from
+  // birth. Seeding `body: ""` materializes the Automerge text object at
+  // `_root/body` so the editor binding (`A.spans(doc, ["body"])`, §11.5) reads
+  // an empty span list instead of throwing on a nonexistent object. An empty
+  // text renders as one implicit empty paragraph — a valid ProseMirror doc.
   const initialDoc: Document = {
     title: initial?.title ?? "",
+    body: initial?.body ?? "",
     createdAt: now,
     updatedAt: now,
   };
-  // Automerge rejects `undefined` values — only set optional fields when present.
-  if (initial?.body !== undefined) initialDoc.body = initial.body;
   const h = repo().create<Document>(initialDoc);
   const id = h.documentId as unknown as string;
   handles.set(id, Promise.resolve(h));
   return id;
+}
+
+/**
+ * getHandle(id) — low-level access to the DocHandle. Used ONLY by the editor
+ * binding, which is inherently handle-based (@automerge/prosemirror). Normal
+ * components never touch this; they use read/mutate.
+ */
+export function getHandle(id: string): Promise<DocHandle<Document>> {
+  return handleFor(id);
 }
 
 /**

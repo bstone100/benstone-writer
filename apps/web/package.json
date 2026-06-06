@@ -22,7 +22,14 @@
 		"vite-plugin-wasm": "^3.6.0"
 	},
 	"dependencies": {
+		"@automerge/prosemirror": "^0.2.0",
 		"@bw/data": "workspace:*",
-		"@bw/schema": "workspace:*"
+		"@bw/schema": "workspace:*",
+		"prosemirror-commands": "^1.7.1",
+		"prosemirror-history": "^1.5.0",
+		"prosemirror-keymap": "^1.2.3",
+		"prosemirror-model": "^1.25.7",
+		"prosemirror-state": "^1.4.4",
+		"prosemirror-view": "^1.41.8"
 	}
 }
