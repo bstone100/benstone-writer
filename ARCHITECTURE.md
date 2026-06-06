@@ -220,6 +220,15 @@ The one genuinely-open piece, now specified. **No turnkey package exists; the re
 - **Runtime gotchas (confirmed, mandatory):** use **`cborg`** for CBOR (`cbor-x` breaks in the Workers runtime) and shim `globalThis.performance ??= { now: () => Date.now() }` for the Automerge WASM.
 - **Honest scope:** the DO sync server + the R2 adapter are **ours to build and test** (~one focused session), with mergeparty as a near-exact blueprint. WASM cold-start on a cold DO is the only perf watch-item.
 
+#### Built & verified (what the implementation refined)
+Implemented and proven end-to-end in local dev (isolated browser contexts: a fresh context pulls a doc purely from the cloud; live edits propagate bidirectionally < ~1s, no reload). Key refinements over the plan above:
+- **The DO is a RELAY, not a pure hub.** A single server `Repo` *responding* to each peer does **not** broadcast one peer's change to the others, and a fresh per-wake `Repo` only knows the waking sender. So we adopt mergeparty's relay: on join the DO announces peers to each other, and clients sync **peer-to-peer through the DO** (`handleFrame` forwards by `targetId` — a **stateless socket-forward**, robust across hibernation). The in-DO `Repo` runs *alongside* purely for **durable R2 storage** (it's also announced as a peer). On each wake we re-announce all surviving sockets so storage-sync still runs.
+- **Custom client adapter, not the stock one.** `@automerge/automerge-repo-network-websocket` pulls the `/slim` Automerge variants, which collide with our full WASM build under Vite's optimizer. We ship our own `BrowserWSClientAdapter` (full `automerge-repo` base, **cborg both ends** → guaranteed wire-compat; cbor-x stays out of the browser too). One socket carries many peers (server + every other client).
+- **CBOR is `cborg` on BOTH ends** (not just the server). Verified cross-decodable byte-for-byte where it matters (incl. `Uint8Array` payloads); encodings differ in length but each decodes the other.
+- **WebSocket framing:** `send()` transmits a view's `byteLength`, so send the cborg `Uint8Array` directly — sending `.buffer` ships the over-allocated tail → `"too many terminals"` decode errors.
+- **WASM loads with the plain default import** under wrangler (the package's `workerd` entrypoint auto-`initSync`s) — no `/slim` + manual init needed on the server.
+- **Still TODO for prod:** auth at the WS upgrade (#6), D1 metadata/registry, the doc-encoded server peerId + precise multi-doc client `sharePolicy` (currently a single open editor doc), and stale-socket sweeping.
+
 ---
 
 ## 9. Reading data flow (detail)
