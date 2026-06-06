@@ -24,6 +24,9 @@
   import { history } from "prosemirror-history";
   import { buildKeymap } from "./editor/keymap";
   import { buildInputRules } from "./editor/inputrules";
+  import { bridge } from "./editor/bridge";
+  import { bubbleState, type BubbleState } from "./editor/bubble";
+  import EditorOverlay from "./editor/EditorOverlay.svelte";
   import { placeholder } from "./placeholder";
   import { vtName } from "./motion";
   import Prose from "./Prose.svelte";
@@ -33,7 +36,9 @@
   let title = $state<string | undefined>(undefined);
   let titleEl: HTMLTextAreaElement;
   let bodyEl: HTMLDivElement;
-  let view: EditorView | undefined;
+  let view = $state<EditorView | undefined>(undefined);
+  // Transient floating-UI state the bridge plugin writes and the overlay reads.
+  let ui = $state<{ bubble: BubbleState }>({ bubble: null });
 
   // The title is a textarea, not an input, so a long title WRAPS within the
   // measure instead of clipping. Auto-grow keeps it chromeless (no scrollbar,
@@ -90,6 +95,7 @@
             keymap(baseKeymap),
             buildInputRules(schema), // markdown-as-you-type (## , - , > , ``` , ---)
             placeholder("Begin writing…"),
+            bridge((v) => (ui.bubble = bubbleState(v.state))), // PM → Svelte overlay
             plugin, // the Automerge ↔ ProseMirror sync plugin (must be last)
           ],
         }),
@@ -125,6 +131,7 @@
     ></textarea>
     <div class="doc-body" bind:this={bodyEl}></div>
   </Prose>
+  {#if view}<EditorOverlay {view} {ui} />{/if}
 </article>
 
 <style>
