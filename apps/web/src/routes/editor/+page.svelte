@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { createDocument } from "@bw/data";
-  import { Editor } from "@bw/ui";
+  import { Editor, History } from "@bw/ui";
 
   // Dev harness for the invisible editor. `?doc={id}` opens a specific document
   // (a second view / another device → proves cloud sync); otherwise a single
   // stable local doc across reloads. Real routing lands with auth/publish.
   let id = $state<string | null>(null);
+  let showHistory = $state(false);
 
   onMount(() => {
     const fromUrl = new URLSearchParams(location.search).get("doc");
@@ -21,12 +22,25 @@
     }
     id = existing;
   });
+
+  function onBranch(newId: string) {
+    id = newId; // switch to editing the fresh branch
+    showHistory = false;
+  }
 </script>
 
 {#if id}
-  <Editor {id} />
+  {#key id}
+    <Editor {id} />
+  {/key}
+
+  {#if showHistory}
+    <History {id} onbranch={onBranch} onclose={() => (showHistory = false)} />
+  {/if}
+
   <footer class="devbar">
     doc <code>{id}</code>
+    · <button class="link" onclick={() => (showHistory = true)}>history</button>
     · <a href={`/editor?doc=${id}`} target="_blank" rel="noreferrer">open 2nd view ↗</a>
   </footer>
 {/if}
@@ -48,7 +62,15 @@
   .devbar code {
     color: var(--color-ink);
   }
-  .devbar a {
+  .devbar a,
+  .devbar .link {
     color: var(--color-accent);
+  }
+  .link {
+    border: none;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+    padding: 0;
   }
 </style>

@@ -1,5 +1,6 @@
 import { Repo, type DocHandle, type AnyDocumentId } from "@automerge/automerge-repo";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
+import * as A from "@automerge/automerge";
 import { BrowserWSClientAdapter } from "./ws-client-adapter";
 import { readable, type Readable } from "svelte/store";
 import { parsePath, type Document, type Path } from "@bw/schema";
@@ -138,9 +139,121 @@ export function getHandle(id: string): Promise<DocHandle<Document>> {
   return handleFor(id);
 }
 
+/* ------------------------------------------------------------------ *
+ * Versioning & branching (§8) — the Automerge change DAG IS the history.
+ * These derive READ-ONLY views and forks from it; nothing is ever mutated
+ * or deleted, so abandoned drafts are preserved for free.
+ * ------------------------------------------------------------------ */
+
+type AmDoc = A.Doc<Document>;
+const amDoc = (d: Document): AmDoc => d as unknown as AmDoc;
+
+export interface HistoryEntry {
+  /** Heads to view the document at this session's end (`documentAt`). */
+  heads: string[];
+  /** Unix ms of the session's last change. */
+  time: number;
+  /** Fine-grained changes folded into this session. */
+  changeCount: number;
+}
+
+// Automerge stores change time in seconds; tolerate ms too.
+const toMs = (t: number): number => (t > 1e12 ? t : t * 1000);
+
+/** Fold the fine-grained change DAG into coarse edit-sessions (§8). */
+function sessionsOf(doc: Document): HistoryEntry[] {
+  const GAP_MS = 3 * 60 * 1000; // a new session after ~3 min idle
+  const out: HistoryEntry[] = [];
+  let cur: HistoryEntry | null = null;
+  for (const raw of A.getAllChanges(amDoc(doc))) {
+    const c = A.decodeChange(raw);
+    const time = toMs(c.time);
+    if (cur && time - cur.time <= GAP_MS) {
+      cur.heads = [c.hash];
+      cur.time = time;
+      cur.changeCount += 1;
+    } else {
+      if (cur) out.push(cur);
+      cur = { heads: [c.hash], time, changeCount: 1 };
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+/** history(id) — reactive edit-session timeline (oldest → newest). */
+export function history(id: string): Readable<HistoryEntry[]> {
+  return readable<HistoryEntry[]>([], (set) => {
+    let handle: DocHandle<Document> | undefined;
+    let active = true;
+    const recompute = () => {
+      if (handle) set(sessionsOf(handle.doc()));
+    };
+    void handleFor(id).then((h) => {
+      if (!active) return;
+      handle = h;
+      h.on("change", recompute);
+      recompute();
+    });
+    return () => {
+      active = false;
+      handle?.off("change", recompute);
+    };
+  });
+}
+
+export interface Snapshot {
+  title: string;
+  paragraphs: string[];
+}
+
+function spansToParagraphs(spans: { type: string; value: unknown }[]): string[] {
+  const paras: string[] = [];
+  let cur = "";
+  let open = false;
+  for (const s of spans) {
+    if (s.type === "block") {
+      if (open) paras.push(cur);
+      cur = "";
+      open = true;
+    } else if (s.type === "text") {
+      cur += String(s.value);
+    }
+  }
+  if (open) paras.push(cur);
+  return paras;
+}
+
+/** documentAt(id, heads) — a read-only snapshot of the document at a past point. */
+export function documentAt(id: string, heads: string[]): Promise<Snapshot> {
+  return handleFor(id).then((h) => {
+    const view = A.view(amDoc(h.doc()), heads) as unknown as Document & { body?: unknown };
+    const spans =
+      view.body !== undefined
+        ? (A.spans(view as unknown as AmDoc, ["body"]) as { type: string; value: unknown }[])
+        : [];
+    return { title: view.title ?? "", paragraphs: spansToParagraphs(spans) };
+  });
+}
+
+/**
+ * branchFrom(id, heads) — fork a new branch document from a past point (§8). The
+ * fork shares ancestry up to `heads` (Patchwork pattern); the original is
+ * untouched (nothing is ever deleted). Returns the new document id.
+ */
+export function branchFrom(id: string, heads: string[]): Promise<string> {
+  return handleFor(id).then((h) => {
+    const forked = A.clone(A.view(amDoc(h.doc()), heads));
+    const branch = repo().import<Document>(A.save(forked));
+    const newId = branch.documentId as unknown as string;
+    handles.set(newId, Promise.resolve(branch));
+    return newId;
+  });
+}
+
 /**
  * collection(query) — reactive list of entity ids. Local listing needs a
- * registry document (built with the library UI, #4/#7). Stub for now.
+ * registry document (built with the library UI, #7). Stub for now.
  */
 export function collection(): Readable<{ ids: string[] }> {
   return readable({ ids: [] });
