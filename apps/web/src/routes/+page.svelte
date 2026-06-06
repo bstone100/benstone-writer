@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Container, Stack, Heading, Text, Link } from "@bw/ui";
+  import { Container, Stack, Heading, Text, Link } from "@bw/ui/reader";
 </script>
 
 <svelte:head><title>Ben Stone</title></svelte:head>

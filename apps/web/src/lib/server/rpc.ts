@@ -1,24 +1,27 @@
 import type { RpcInput, RpcOutput } from "@bw/schema";
 import { upsertPost, deletePost } from "$lib/published";
-import { emitFeed } from "$lib/server/feed";
+import { notifyFeed } from "$lib/server/feed";
 
 /**
  * Server-side RPC handlers (§14.1.B). One handler per verb in the RpcContract;
  * each receives already-zod-parsed input (validated at ingress by the generic
- * /api/rpc/[verb] endpoint against the schema contract) and returns the
- * contract's output type. Side effects (store + reader-feed notify) live here,
- * not in the route. At deploy `published`/`feed` swap to D1 + ReaderFeedDO
- * behind the same interface; these handlers don't change.
+ * /api/rpc/[verb] endpoint) plus the Worker `env` (bindings). Side effects —
+ * the D1 publish store + the ReaderFeedDO notify — live here, not in the route.
+ * `env` is undefined under plain `vite dev`; the store/feed degrade accordingly.
  */
-export const handlers: { [V in "publish" | "unpublish"]: (input: RpcInput<V>) => RpcOutput<V> } = {
-  publish(input) {
-    const post = upsertPost(input, Date.now());
-    emitFeed({ type: "published", slug: post.slug, updatedAt: post.publishedAt });
+type Env = App.Platform["env"] | undefined;
+
+export const handlers: {
+  [V in "publish" | "unpublish"]: (input: RpcInput<V>, env: Env) => Promise<RpcOutput<V>>;
+} = {
+  async publish(input, env) {
+    const post = await upsertPost(env?.DB, input, Date.now());
+    await notifyFeed(env, { type: "published", slug: post.slug, updatedAt: post.publishedAt });
     return { slug: post.slug, publishedAt: post.publishedAt };
   },
-  unpublish(input) {
-    deletePost(input.slug);
-    emitFeed({ type: "unpublished", slug: input.slug });
+  async unpublish(input, env) {
+    await deletePost(env?.DB, input.slug);
+    await notifyFeed(env, { type: "unpublished", slug: input.slug });
     return { ok: true };
   },
 };

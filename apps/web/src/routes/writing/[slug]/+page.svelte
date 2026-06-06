@@ -22,7 +22,7 @@
   onMount(() => {
     fetch("/api/me")
       .then((r) => r.json())
-      .then((m: { owner: boolean }) => (owner = !!m.owner))
+      .then((m) => (owner = !!(m as { owner?: boolean }).owner))
       .catch(() => {});
 
     // Live updates (§7 #5): re-pull on republish, leave on unpublish. Never while

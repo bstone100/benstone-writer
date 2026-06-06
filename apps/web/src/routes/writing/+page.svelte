@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invalidateAll } from "$app/navigation";
-  import { Container, Stack, Heading, Text, Link } from "@bw/ui";
+  import { Container, Stack, Heading, Text, Link } from "@bw/ui/reader";
   import { vtName } from "@bw/ui/motion";
   import { P } from "@bw/schema";
   import type { PageData } from "./$types";

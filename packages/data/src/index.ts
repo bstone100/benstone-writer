@@ -10,10 +10,14 @@ import { groupChanges, type HistoryEntry } from "./history";
  * Cloud sync wiring (§8.1). A document syncs to its Durable Object only once
  * `enableSync(id)` is called for it — so the sharePolicy below announces ONLY
  * those docs to cloud peers, and nothing leaks. One WebSocket per open doc
- * (one DO per document). Dev points at the standalone sync Worker on :8787;
- * in production one Worker serves app + sync (wss://<host>/sync), wired at deploy.
+ * (one DO per document). The endpoint is SAME-ORIGIN — `/sync/{id}` on this
+ * host — so one Worker serves app + sync and the Access cookie rides the
+ * upgrade (§13, §15). Resolved per-call (browser-only; enableSync runs onMount).
  */
-const SYNC_BASE = "ws://localhost:8787/sync";
+function syncUrl(documentId: string): string {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${location.host}/sync/${documentId}`;
+}
 const syncedDocs = new Set<string>();
 const syncAdapters = new Map<string, BrowserWSClientAdapter>();
 
@@ -43,7 +47,7 @@ function repo(): Repo {
 export function enableSync(documentId: string): void {
   if (syncedDocs.has(documentId)) return;
   syncedDocs.add(documentId);
-  const adapter = new BrowserWSClientAdapter(`${SYNC_BASE}/${documentId}`);
+  const adapter = new BrowserWSClientAdapter(syncUrl(documentId));
   syncAdapters.set(documentId, adapter);
   repo().networkSubsystem.addNetworkAdapter(adapter);
 }

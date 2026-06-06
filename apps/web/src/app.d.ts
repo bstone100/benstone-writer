@@ -1,5 +1,9 @@
-// See https://svelte.dev/docs/kit/types#app.d.ts
-// for information about these interfaces
+/// <reference types="@cloudflare/workers-types" />
+// The Cloudflare bindings available to server code via `event.platform.env`
+// (§14.1). DO namespaces are generically typed off @bw/api's classes (type-only
+// import → erased, no automerge at runtime) so the stubs carry their RPC methods.
+import type { SyncDocDO, ReaderFeedDO } from "@bw/api";
+
 declare global {
 	namespace App {
 		// interface Error {}
@@ -9,7 +13,22 @@ declare global {
 		}
 		// interface PageData {}
 		// interface PageState {}
-		// interface Platform {}
+		interface Platform {
+			env: {
+				DB: D1Database;
+				KV: KVNamespace;
+				DOC_STORE: R2Bucket;
+				SYNC_DOC: DurableObjectNamespace<SyncDocDO>;
+				READER_FEED: DurableObjectNamespace<ReaderFeedDO>;
+				ASSETS: Fetcher;
+				ACCESS_TEAM_DOMAIN: string;
+				ACCESS_AUD: string;
+				OWNER_EMAIL: string;
+			};
+			ctx: ExecutionContext;
+			cf?: CfProperties;
+			caches: CacheStorage;
+		}
 	}
 }
 

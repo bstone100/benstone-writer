@@ -1,18 +1,23 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { FeedEvent } from "@bw/schema";
 
-// Swap the fs-backed publish store for an in-memory one (deterministic, no fs
-// pollution) — the feed stays REAL so we assert the publish→reader-feed seam.
+// Swap the D1-backed publish store for an in-memory one (deterministic, no real
+// binding) — the feed stays REAL (env is undefined here, so notifyFeed routes to
+// the in-process hub) so we assert the publish→reader-feed seam. The store fns
+// take the DB binding first (unused here); the test passes no platform → env
+// undefined → store called with db=undefined.
 const { store } = vi.hoisted(() => ({ store: new Map<string, unknown>() }));
 vi.mock("$lib/published", () => ({
-  upsertPost: (req: Record<string, unknown>, publishedAt: number) => {
+  upsertPost: async (_db: unknown, req: Record<string, unknown>, publishedAt: number) => {
     const post = { ...req, publishedAt };
     store.set(req.slug as string, post);
     return post;
   },
-  getPost: (slug: string) => store.get(slug),
-  deletePost: (slug: string) => store.delete(slug),
-  listPosts: () => [...store.values()],
+  getPost: async (_db: unknown, slug: string) => store.get(slug),
+  deletePost: async (_db: unknown, slug: string) => {
+    store.delete(slug);
+  },
+  listPosts: async () => [...store.values()],
 }));
 
 import { POST } from "./+server";

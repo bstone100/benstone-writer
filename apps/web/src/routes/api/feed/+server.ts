@@ -1,4 +1,4 @@
-import { subscribeFeed } from "$lib/server/feed";
+import { subscribeFeed, FEED_DO_NAME } from "$lib/server/feed";
 import type { FeedEvent } from "@bw/schema";
 import type { RequestHandler } from "./$types";
 
@@ -8,7 +8,13 @@ import type { RequestHandler } from "./$types";
  * (emits only "post published: {slug}", nothing sensitive). At deploy this is
  * served by ReaderFeedDO; in dev by the in-process hub.
  */
-export const GET: RequestHandler = () => {
+export const GET: RequestHandler = ({ request, platform }) => {
+  // Production: the ReaderFeedDO holds the open reader streams across isolates.
+  if (platform?.env?.READER_FEED) {
+    const ns = platform.env.READER_FEED;
+    return ns.get(ns.idFromName(FEED_DO_NAME)).fetch(request);
+  }
+  // Fallback (plain `vite dev`, no bindings): the in-process hub.
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | undefined;
   let keepalive: ReturnType<typeof setInterval> | undefined;

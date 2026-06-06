@@ -25,3 +25,21 @@ export function subscribeFeed(listener: Listener): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+
+/** The singleton ReaderFeedDO instance name (one global fan-out, §14.1.E). */
+export const FEED_DO_NAME = "global";
+
+/**
+ * Emit a reader-feed event the way prod does: fan out through the ReaderFeedDO
+ * when the binding is present (one DO, all isolates), else the in-process hub
+ * (plain `vite dev`). The publish/unpublish RPC calls this; readers update in
+ * place — never a reload/poll.
+ */
+export async function notifyFeed(env: App.Platform["env"] | undefined, event: FeedEvent): Promise<void> {
+  if (env?.READER_FEED) {
+    const ns = env.READER_FEED;
+    await ns.get(ns.idFromName(FEED_DO_NAME)).notify(event);
+  } else {
+    emitFeed(event);
+  }
+}

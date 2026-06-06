@@ -10,7 +10,7 @@ import type { RequestHandler } from "./$types";
  * (an unschema'd/malformed body physically can't reach a handler, §14), then the
  * matching handler runs and its contract-typed output is returned.
  */
-export const POST: RequestHandler = async ({ params, request, locals }) => {
+export const POST: RequestHandler = async ({ params, request, locals, platform }) => {
   if (!locals.owner) throw error(401, "unauthorized");
 
   const verb = params.verb as RpcVerb;
@@ -21,7 +21,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   if (!parsed.success) throw error(400, "invalid rpc input");
 
   // Input is validated for THIS verb; the handler map is typed per-verb, so the
-  // dynamic dispatch needs one cast (verb is a union at this point).
-  const handler = handlers[verb] as (input: unknown) => unknown;
-  return json(handler(parsed.data), { headers: { "cache-control": "no-store" } });
+  // dynamic dispatch needs one cast (verb is a union at this point). The handler
+  // gets the Worker bindings (D1 + ReaderFeedDO) to do its side effects.
+  const handler = handlers[verb] as (
+    input: unknown,
+    env: App.Platform["env"] | undefined,
+  ) => Promise<unknown>;
+  return json(await handler(parsed.data, platform?.env), { headers: { "cache-control": "no-store" } });
 };

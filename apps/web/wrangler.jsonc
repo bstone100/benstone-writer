@@ -1,0 +1,49 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "benstone-writer",
+  "account_id": "846712884d61f84ce1faa9b83f9a8265",
+  "main": ".svelte-kit/cloudflare/_worker.js",
+  "compatibility_date": "2026-06-01",
+  // automerge-repo's deps touch node builtins (events/buffer); the DO bundle
+  // also wants a `performance` global (shimmed in @bw/api). One Worker = the
+  // SvelteKit app + the DOs, so the whole thing runs with nodejs_compat.
+  "compatibility_flags": ["nodejs_compat"],
+
+  // adapter-cloudflare (Workers + Static Assets) requires BOTH of these when
+  // `main` is set, or it assumes a Pages build.
+  "assets": {
+    "directory": ".svelte-kit/cloudflare",
+    "binding": "ASSETS"
+  },
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "SYNC_DOC", "class_name": "SyncDocDO" },
+      { "name": "READER_FEED", "class_name": "ReaderFeedDO" }
+    ]
+  },
+  // SQLite-backed DO storage (the modern default; required on the free tier).
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SyncDocDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["ReaderFeedDO"] }
+  ],
+
+  // Tier-2 durable storage: Automerge change/snapshot binaries (§6).
+  // NOTE: enable R2 in the Cloudflare dashboard (free tier) + `wrangler r2 bucket
+  // create benstone-writer-docs` before deploy. Local `wrangler dev` emulates it.
+  "r2_buckets": [{ "binding": "DOC_STORE", "bucket_name": "benstone-writer-docs" }],
+
+  // D1: the published-post index (§6). migrations_dir defaults to ./migrations.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "benstone-writer",
+      "database_id": "8d5e0077-6da8-4596-86fd-11cde16cb8d3"
+    }
+  ],
+
+  // KV: reserved for edge-cached/config values (§5). Bound now; used as needed.
+  "kv_namespaces": [{ "binding": "KV", "id": "cb9f5a5f7f51468a8c93f6f812a5808a" }],
+
+  "observability": { "enabled": true }
+}
