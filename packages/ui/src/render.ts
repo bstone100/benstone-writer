@@ -23,7 +23,13 @@ export async function renderForPublish(id: string): Promise<PublishRequest> {
   const container = document.createElement("div");
   container.appendChild(serializer.serializeFragment(node.content));
   const html = container.innerHTML;
-  const excerpt = (container.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+  // Join block texts with a space so paragraph boundaries don't run together.
+  const excerpt = Array.from(container.children)
+    .map((el) => el.textContent ?? "")
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
   return { slug: slugify(title), title, html, excerpt, sourceId: id };
 }
 
