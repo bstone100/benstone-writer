@@ -20,7 +20,8 @@
 		"svelte-check": "^4.4.6",
 		"typescript": "^6.0.2",
 		"vite": "^7.3.5",
-		"vite-plugin-wasm": "^3.6.0"
+		"vite-plugin-wasm": "^3.6.0",
+		"wrangler": "^4.98.0"
 	},
 	"dependencies": {
 		"@bw/api": "workspace:*",
