@@ -27,6 +27,7 @@
 		"@bw/data": "workspace:*",
 		"@bw/schema": "workspace:*",
 		"@bw/ui": "workspace:*",
+		"arctic": "^3.7.0",
 		"jose": "^6.2.3"
 	}
 }

@@ -8,7 +8,7 @@ declare global {
 	namespace App {
 		// interface Error {}
 		interface Locals {
-			/** True only for the site owner (Cloudflare Access verified, or dev). */
+			/** True only for the site owner (a verified GitHub session, ROUND-2 R3). */
 			owner: boolean;
 		}
 		// interface PageData {}
@@ -21,9 +21,9 @@ declare global {
 				SYNC_DOC: DurableObjectNamespace<SyncDocDO>;
 				READER_FEED: DurableObjectNamespace<ReaderFeedDO>;
 				ASSETS: Fetcher;
-				ACCESS_TEAM_DOMAIN: string;
-				ACCESS_AUD: string;
-				OWNER_EMAIL: string;
+				SESSION_SECRET: string;
+				GITHUB_CLIENT_ID: string;
+				GITHUB_CLIENT_SECRET: string;
 			};
 			ctx: ExecutionContext;
 			cf?: CfProperties;

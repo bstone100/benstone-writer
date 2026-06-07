@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// isOwner is the auth INPUT (it verifies the Cloudflare Access assertion via
-// jose — unit-tested separately as decideOwner). Here we mock it to drive the
-// GATE logic across the (path × owner) matrix — the security-critical seam.
-vi.mock("$lib/server/access", () => ({ isOwner: vi.fn() }));
+// isOwner is the auth INPUT (it verifies the GitHub session via jose — unit-
+// tested separately in session-core.test.ts). Here we mock it to drive the GATE
+// logic across the (path × owner) matrix — the security-critical seam.
+vi.mock("$lib/server/auth", () => ({ isOwner: vi.fn() }));
 
 import { handle } from "./hooks.server";
-import { isOwner } from "$lib/server/access";
+import { isOwner } from "$lib/server/auth";
 
 const owner = vi.mocked(isOwner);
 

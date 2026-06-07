@@ -1,61 +1,62 @@
-# Auth — Cloudflare Access (single-admin gate)
+# Auth — GitHub OAuth (single-admin gate)
 
-The whole site is open-source and public, so the security posture is: **own as
-little auth code as possible.** Authentication is **Cloudflare Access** at the
-edge — the login UI, identity provider, sessions, and the allow-list policy live
-in Cloudflare config, *not* in this repo and *not* as secrets we hold. The only
-auth code we own is `apps/web/src/lib/server/access.ts` (~40 lines): it
-re-verifies the edge's signed assertion as defense-in-depth and checks it's the
-owner.
+The whole site is open-source and public, so the posture is unchanged from round
+one: **own as little auth code as possible**, and authenticate **exactly one
+identity — Ben — and nobody else.** Round two replaces Cloudflare Access (whose
+dashboard UX was unbearable) with **GitHub OAuth**. The full design and the
+first-hand verification (the User-Agent trap, the no-bypass test strategy) live in
+**[`ROUND-2.md`](../ROUND-2.md) §4.3–§4.4**; this file is the operational summary.
 
-This decision (and why not passkeys / better-auth / Auth.js / Clerk) is recorded
-in ARCHITECTURE §13.
+## The shape
+
+- **Handshake:** [Arctic](https://arcticjs.dev) drives the OAuth handshake — we
+  never hand-roll it. `/auth/login` → GitHub consent → `/auth/callback`.
+- **Session:** a [jose](https://github.com/panva/jose)-signed **HS256 JWT** in a
+  `__Host-session` cookie carrying the GitHub **numeric id**. The signing key
+  (`SESSION_SECRET`) is the trust root.
+- **Gate:** `isOwner(event)` = the verified session id equals `OWNER_GITHUB_ID`
+  (`57852724` — Ben; public, in code, never the mutable username). One gate in
+  `hooks.server.ts` over the private surface; everything else public-by-default.
+- **Owned code:** `lib/server/{session-core,session,github,auth}.ts`. The
+  security-critical crypto is the pure, `$env`-free `session-core.ts`
+  (unit-tested in `session-core.test.ts`). No identity provider, session store, or
+  user system to own.
 
 ## What's gated
 
 | Surface | Gated? | How |
 |---|---|---|
-| `/`, `/writing`, `/writing/{slug}` | **No** (public, cacheable, zero-JS) | — |
-| `/studio`, `/studio/*` | Yes | Access edge + `hooks.server.ts` |
-| `POST /api/publish` | Yes | Access edge + `hooks.server.ts` + endpoint check |
-| `GET /api/me` (owner probe) | No (returns `{owner:false}` for visitors) | reads verified identity |
-| Sync WebSocket (`workers/api` `/sync/{id}`) | **Yes in prod (TODO at deploy)** | same-origin Access cookie on the upgrade |
+| `/`, `/documents/{uuid}` (read) | No — public, cacheable, zero-JS | — |
+| `/api/rpc/*`, `/sync/{id}` | Yes | `hooks.server.ts` → `locals.owner` |
+| `/api/me` (owner probe) | No — returns `{owner:false}` to visitors | reads `locals.owner` |
+| `/auth/*` | No — it *is* the login | — |
 
-`/api/me` is how the public, cacheable article page reveals an Edit control for
-the owner without varying its HTML (§11.5): the page is identical for everyone;
-the owner's browser calls `/api/me` after paint and enhances.
+## Cookies (the traps, recorded)
 
-## Cloudflare setup (do this at deploy)
+- `SameSite=Lax`, **not Strict** — the callback is a top-level GET *from*
+  github.com; Strict would withhold the state cookie there and break every login.
+- `__Host-` prefix in prod (origin-pinned, HTTPS-only); dropped in dev because
+  `http://localhost` can't set `Secure`.
+- The `/user` call to `api.github.com` **must** send a `User-Agent` (verified: 403
+  without it). Arctic sets its own on the token exchange; ours is explicit in
+  `github.ts`.
 
-1. **Zero Trust → Access → Applications → Add → Self-hosted.**
-   - Application domain(s): the production host, scoped to the private paths
-     (e.g. `benstone.me/studio*`, `benstone.me/api/publish`, and the sync path).
-     Leave `/writing*` and `/` **ungated**.
-   - Identity provider: pick one that supports passkeys upstream if wanted
-     (GitHub or Google one-click; one-time-PIN email also works).
-   - **Policy:** Action **Allow**, Include → **Emails** → your email. That single
-     rule is the entire "authenticate me and nobody else."
-   - Note the application **AUD** (Audience) tag.
-2. **Set Worker vars** (non-secret; `wrangler.jsonc` `[vars]` or dashboard):
-   - `ACCESS_TEAM_DOMAIN` = `https://<your-team>.cloudflareaccess.com`
-   - `ACCESS_AUD` = the application AUD tag
-   - `OWNER_EMAIL` = your allow-listed email
-   - The app fails **closed** if these are unset in prod (no assertion ⇒ not owner).
-3. **Sync WebSocket gate:** once app + sync ship as one Worker (one origin), the
-   WS upgrade carries the Access cookie; verify it in the Worker `fetch` before
-   forwarding to the DO (see the SECURITY note in `workers/api/src/index.ts`).
-   If sync stays a separate origin, mint a short-lived signed ticket from an
-   authed endpoint and verify it on connect (Cloudflare's documented pattern).
-4. **CI secret scanning** before the repo goes public (e.g. `gitleaks`), and
-   confirm no secret (incl. the GitHub OAuth secret Cloudflare holds for you)
-   ever lands in the repo. Nothing in this auth design requires a committed
-   secret.
+## Setup at deploy (Ben creates one GitHub OAuth App)
 
-## Local dev
+1. github.com → Settings → Developer settings → **OAuth Apps → New**:
+   - Homepage `https://benstone-writer.bstone100.workers.dev`
+   - Callback `https://benstone-writer.bstone100.workers.dev/auth/callback`
+2. Secrets (never committed):
+   - `wrangler secret put SESSION_SECRET` — a long random string
+   - `wrangler secret put GITHUB_CLIENT_SECRET` — from the OAuth App
+   - `GITHUB_CLIENT_ID` is **not** secret (Worker `[vars]` or a secret, either way).
+3. CI secret-scan (gitleaks) stays; no auth secret ever lands in the repo.
 
-There is no Cloudflare edge in front of `vite dev`, so there's no assertion to
-verify. `localhost` is your own machine, not a public boundary, so `isOwner`
-returns `true` in dev (`dev` is compile-time **false** in every production
-build, and prod is gated by the Access edge regardless — so this is not a
-production bypass). The full edge flow is therefore verified at deploy, not in
-local dev.
+## Local dev & testing (no production bypass)
+
+`vite dev` reads `.env`; `wrangler dev` reads `.dev.vars` (both gitignored, each
+with a local `SESSION_SECRET`). The **real** GitHub handshake is tested against the
+**deployed** app (its one callback URL) — driven via a real browser. Everything
+*behind* auth is tested by **minting a dev session** with the local secret —
+`node apps/web/scripts/mint-session.mjs` — which only the secret-holder can do and
+which no app route exposes. There is **no** dev-only or prod login bypass.
