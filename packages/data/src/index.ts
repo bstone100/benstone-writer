@@ -438,6 +438,11 @@ export function restoreToHead(id: string, heads: string[]): Promise<void> {
   });
 }
 
+/** headsOf(id) — the document's current heads (the version "Make live" publishes). */
+export function headsOf(id: string): Promise<string[]> {
+  return handleFor(id).then((h) => A.getHeads(amDoc(h.doc())) as string[]);
+}
+
 /**
  * collection() — reactive list of family-ROOT document ids (§11.1). The library
  * lists roots only; branches live behind the BranchPicker. Each card reads its

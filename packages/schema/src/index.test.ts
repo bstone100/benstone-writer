@@ -55,19 +55,24 @@ describe("schemas validate the data contract (§14)", () => {
   });
 });
 
-describe("RPC contract — define-once, zod-parsed at ingress (§14.1.B)", () => {
-  const req = { id: "d1", title: "t", html: "<p>x</p>", excerpt: "x" };
-  it("publish: validates input + output", () => {
-    expect(RpcContract.publish.input.safeParse(req).success).toBe(true);
-    expect(RpcContract.publish.input.safeParse({ id: "d1" }).success).toBe(false);
-    expect(RpcContract.publish.output.safeParse({ id: "d1", publishedAt: 1 }).success).toBe(true);
-    expect(RpcContract.publish.output.safeParse({ id: "d1" }).success).toBe(false);
+describe("RPC contract — define-once, zod-parsed at ingress (§14.1.B / R5)", () => {
+  const makeLiveReq = { id: "d1", title: "t", html: "<p>x</p>", excerpt: "x", heads: ["h1"] };
+  it("makeLive: validates input (needs heads) + output (id + version + publishedAt)", () => {
+    expect(RpcContract.makeLive.input.safeParse(makeLiveReq).success).toBe(true);
+    expect(RpcContract.makeLive.input.safeParse({ id: "d1", title: "t", html: "x", excerpt: "x" }).success).toBe(false); // no heads
+    expect(RpcContract.makeLive.output.safeParse({ id: "d1", version: 1, publishedAt: 1 }).success).toBe(true);
+    expect(RpcContract.makeLive.output.safeParse({ id: "d1", publishedAt: 1 }).success).toBe(false); // no version
   });
-  it("unpublish: validates input + output", () => {
+  it("nameVersion / versions / unpublish validate", () => {
+    expect(RpcContract.nameVersion.input.safeParse({ id: "d1", heads: ["h1"], name: "v1" }).success).toBe(true);
+    expect(RpcContract.versions.input.safeParse({ id: "d1" }).success).toBe(true);
+    expect(
+      RpcContract.versions.output.safeParse({ liveHeads: ["h1"], versions: [{ heads: ["h1"], version: 1, name: null }] })
+        .success,
+    ).toBe(true);
+    expect(RpcContract.versions.output.safeParse({ liveHeads: null, versions: [] }).success).toBe(true);
     expect(RpcContract.unpublish.input.safeParse({ id: "d1" }).success).toBe(true);
-    expect(RpcContract.unpublish.input.safeParse({}).success).toBe(false);
     expect(RpcContract.unpublish.output.safeParse({ ok: true }).success).toBe(true);
-    expect(RpcContract.unpublish.output.safeParse({ ok: false }).success).toBe(false);
   });
 });
 

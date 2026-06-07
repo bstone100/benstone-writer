@@ -63,8 +63,10 @@
     publishing = true;
     try {
       island ??= await import("@bw/ui");
-      const req = await island.renderForPublish(data.id);
-      await rpc.publish(req); // render the published projection (typed RPC)
+      const { headsOf } = await import("@bw/data");
+      const heads = await headsOf(data.id);
+      const req = await island.renderForPublish(data.id, heads);
+      await rpc.makeLive({ ...req, heads }); // make the current version live (R5)
       withTransition(() => (editing = false));
       void invalidateAll();
     } finally {

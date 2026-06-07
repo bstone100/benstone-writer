@@ -41,6 +41,20 @@ export type PublishedPost = z.infer<typeof PublishedPostSchema>;
 export const PublishRequestSchema = PublishedPostSchema.omit({ publishedAt: true });
 export type PublishRequest = z.infer<typeof PublishRequestSchema>;
 
+/** Make-live RPC input: a version's rendered projection + the heads being made live (R5). */
+export const MakeLiveRequestSchema = PublishRequestSchema.extend({ heads: z.array(z.string()) });
+export type MakeLiveRequest = z.infer<typeof MakeLiveRequestSchema>;
+
+/** A released/named version of a document, for the history ⋮ menu (R5). */
+export const VersionMetaSchema = z.object({
+  heads: z.array(z.string()),
+  /** Permanent monotonic release number (vN), assigned on Make live; null if only named. */
+  version: z.number().nullable(),
+  /** Optional human label (the "Name version" action). */
+  name: z.string().nullable(),
+});
+export type VersionMeta = z.infer<typeof VersionMetaSchema>;
+
 /**
  * Reader-feed events (§7 #5, §14.1.C) — pushed over SSE to open readers so the
  * page updates in place (never a reload/poll). Defined once; the feed server
@@ -64,12 +78,25 @@ export type FeedEvent = z.infer<typeof FeedEventSchema>;
  * surface ever grows or a non-TS client appears (§14, §17.7).
  */
 export const RpcContract = {
-  /** Store a client-rendered post + notify the reader-feed. */
-  publish: {
-    input: PublishRequestSchema,
-    output: z.object({ id: z.string(), publishedAt: z.number() }),
+  /** Make a version LIVE: store its rendered projection, assign the next vN, notify the feed (R5). */
+  makeLive: {
+    input: MakeLiveRequestSchema,
+    output: z.object({ id: z.string(), version: z.number(), publishedAt: z.number() }),
   },
-  /** Remove a published post + notify the reader-feed. */
+  /** Attach a human name to a version (R5). */
+  nameVersion: {
+    input: z.object({ id: z.string(), heads: z.array(z.string()), name: z.string() }),
+    output: z.object({ ok: z.literal(true) }),
+  },
+  /** The doc's version metadata (the live pointer + released/named versions) for the history panel (R5). */
+  versions: {
+    input: z.object({ id: z.string() }),
+    output: z.object({
+      liveHeads: z.array(z.string()).nullable(),
+      versions: z.array(VersionMetaSchema),
+    }),
+  },
+  /** Take the doc down (remove its live projection) + notify the reader-feed. */
   unpublish: {
     input: z.object({ id: z.string() }),
     output: z.object({ ok: z.literal(true) }),
