@@ -406,15 +406,35 @@ export interface PublishSource {
   spans: { type: string; value: unknown; marks?: Record<string, unknown> }[];
 }
 
-/** bodyForPublish(id) — the current title + body spans, for the publish render. */
-export function bodyForPublish(id: string): Promise<PublishSource> {
+/** bodyForPublish(id, heads?) — title + body spans (at `heads`, or current HEAD) for the publish render. */
+export function bodyForPublish(id: string, heads?: string[]): Promise<PublishSource> {
   return handleFor(id).then((h) => {
-    const doc = h.doc() as Document & { body?: unknown };
+    const base = amDoc(h.doc());
+    const doc = (heads ? A.view(base, heads) : base) as unknown as Document & { body?: unknown };
     const spans =
       doc.body !== undefined
-        ? (A.spans(amDoc(doc), ["body"]) as PublishSource["spans"])
+        ? (A.spans(doc as unknown as AmDoc, ["body"]) as PublishSource["spans"])
         : [];
     return { title: doc.title ?? "", spans };
+  });
+}
+
+/**
+ * restoreToHead(id, heads) — roll a past version's content forward to HEAD as ONE
+ * linear change (ROUND-2 §3.3; verified in _probe-versions.mjs). NOT a fork: a
+ * forward `change()` that rewrites title + body to match `view(doc, heads)` (using
+ * `updateSpans` so rich-text marks restore too), so nothing in history is lost and
+ * the editing draft becomes that version. The editor, bound to the doc, follows.
+ */
+export function restoreToHead(id: string, heads: string[]): Promise<void> {
+  return handleFor(id).then((h) => {
+    const view = A.view(amDoc(h.doc()), heads) as unknown as Document & { body?: unknown };
+    const title = view.title ?? "";
+    const viewSpans = view.body !== undefined ? A.spans(view as unknown as AmDoc, ["body"]) : [];
+    h.change((d) => {
+      (d as { title: string }).title = title;
+      A.updateSpans(d as unknown as AmDoc, ["body"], viewSpans);
+    });
   });
 }
 

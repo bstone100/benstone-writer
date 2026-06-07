@@ -15,8 +15,8 @@ import type { PublishRequest } from "@bw/schema";
  * Safe by construction: `DOMSerializer` only emits nodes/marks defined in our
  * schema, so the HTML can't contain arbitrary/script markup.
  */
-export async function renderForPublish(id: string): Promise<PublishRequest> {
-  const { title, spans } = await bodyForPublish(id);
+export async function renderForPublish(id: string, heads?: string[]): Promise<PublishRequest> {
+  const { title, spans } = await bodyForPublish(id, heads);
   const node: PMNode = pmDocFromSpans(
     basicSchemaAdapter,
     spans as Parameters<typeof pmDocFromSpans>[1],
