@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invalidateAll, goto } from "$app/navigation";
-  import { Reader, Bar, Stack, Link, Text, Button } from "@bw/ui/reader";
+  import { Reader, Button } from "@bw/ui/reader";
+  import TopBar from "$lib/TopBar.svelte";
+  import { session } from "$lib/owner.svelte";
   import { rpc } from "$lib/rpc";
   import type { FeedEvent } from "@bw/schema";
   import type { PageData } from "./$types";
@@ -9,27 +11,17 @@
   let { data }: { data: PageData } = $props();
 
   // ONE surface (ROUND-2 R1/R2): two views of one entity at one URL. A PUBLISHED
-  // doc renders the Reader for everyone (cacheable) and reveals the owner's Edit
-  // affordance out-of-band via /api/me. A DRAFT (post === null) is owner-only —
-  // the load already proved the owner — so we drop straight into the editor.
-  // (The editor/CRDT bundle is the ONLY place it loads, and only client-side.)
-  let owner = $state(false);
+  // doc renders the Reader for everyone (cacheable); the owner's Edit affordance is
+  // revealed via the shared session store. A DRAFT (post === null) is owner-only —
+  // the load already proved the owner — so we drop straight into the editor. The
+  // editor/CRDT bundle is the ONLY place it loads, and only client-side.
   let editing = $state(false);
   let publishing = $state(false);
   let island = $state<typeof import("@bw/ui") | null>(null);
   const EditorComp = $derived(island?.Editor);
 
   onMount(() => {
-    if (data.post) {
-      fetch("/api/me")
-        .then((r) => r.json())
-        .then((m) => (owner = !!(m as { owner?: boolean }).owner))
-        .catch(() => {});
-    } else {
-      // Draft (post === null): the load already proved the owner → edit at once.
-      owner = true;
-      void startEdit();
-    }
+    if (!data.post) void startEdit(); // draft: owner proven by the load → edit at once
 
     // Live (§7 #5): re-pull on republish, leave on unpublish; never mid-edit.
     const es = new EventSource("/api/feed");
@@ -48,12 +40,10 @@
     if (typeof document !== "undefined" && document.startViewTransition) document.startViewTransition(fn);
     else fn();
   }
-
   async function startEdit() {
     island ??= await import("@bw/ui"); // the editor chunk — only ever loaded here
     withTransition(() => (editing = true));
   }
-
   async function publishEdits() {
     if (publishing) return;
     publishing = true;
@@ -74,23 +64,20 @@
   {#if data.post}<meta name="description" content={data.post.excerpt} />{/if}
 </svelte:head>
 
-{#if owner}
-  <Bar edge="top" justify="between">
-    <Link href="/" tone="muted"><Text size="sm" family="sans" tone="inherit">← Writing</Text></Link>
+<TopBar>
+  {#if session.owner}
     {#if editing}
-      <Stack direction="row" gap={4} align="center">
-        {#if data.post}
-          <Button variant="link" onclick={() => withTransition(() => (editing = false))}>Done</Button>
-        {/if}
-        <Button variant="link" disabled={publishing} onclick={publishEdits}>
-          {publishing ? "Publishing…" : data.post ? "Publish ↗" : "Publish"}
-        </Button>
-      </Stack>
+      {#if data.post}
+        <Button variant="link" onclick={() => withTransition(() => (editing = false))}>Done</Button>
+      {/if}
+      <Button variant="link" disabled={publishing} onclick={publishEdits}>
+        {publishing ? "Publishing…" : data.post ? "Publish ↗" : "Publish"}
+      </Button>
     {:else}
       <Button variant="link" onclick={startEdit}>Edit</Button>
     {/if}
-  </Bar>
-{/if}
+  {/if}
+</TopBar>
 
 {#if editing && EditorComp}
   <EditorComp id={data.id} />
