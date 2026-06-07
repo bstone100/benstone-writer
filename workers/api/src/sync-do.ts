@@ -1,6 +1,7 @@
-import "./shim"; // MUST precede automerge-repo (which loads Automerge's WASM).
+import "./shim"; // MUST precede Automerge (imported directly below + via automerge-repo).
 import { DurableObject } from "cloudflare:workers";
 import { Repo, type PeerId } from "@automerge/automerge-repo";
+import * as A from "@automerge/automerge";
 import { DONetworkAdapter } from "./do-network-adapter";
 import { R2StorageAdapter } from "./r2-storage-adapter";
 import { decode, isJoin } from "./wire";
@@ -41,6 +42,10 @@ export class SyncDocDO extends DurableObject<Env> {
   private readonly known = new Set<string>();
   /** Heads the storage subsystem is persisting, per doc; promoted to a durable ack once R2 confirms. */
   private readonly pendingHeads = new Map<string, string[]>();
+  /** The R2 storage adapter (also read directly to ack a doc's durable heads on connect). */
+  private storage?: R2StorageAdapter;
+  /** (peerId:docId) pairs already given an initial durable-heads ack this DO lifetime. */
+  private readonly initialAcked = new Set<string>();
 
   private boot(): void {
     if (this.booted) return;
@@ -48,10 +53,11 @@ export class SyncDocDO extends DurableObject<Env> {
     // peerId for now derives from the DO instance; a doc-encoded peerId (for
     // precise multi-doc client sharePolicy) lands with multi-doc support.
     const serverPeerId = `server:${this.ctx.id.toString()}` as PeerId;
+    this.storage = new R2StorageAdapter(this.env.DOC_STORE, (documentId, type) => {
+      if (type === "incremental" || type === "snapshot") this.ackPersisted(documentId);
+    });
     this.repo = new Repo({
-      storage: new R2StorageAdapter(this.env.DOC_STORE, (documentId, type) => {
-        if (type === "incremental" || type === "snapshot") this.ackPersisted(documentId);
-      }),
+      storage: this.storage,
       network: [this.net],
       peerId: serverPeerId,
       sharePolicy: async () => true, // server mirrors whatever a client syncs
@@ -91,14 +97,40 @@ export class SyncDocDO extends DurableObject<Env> {
     if (this.known.has(documentId)) return;
     this.known.add(documentId);
     // Instantiate the handle so the in-DO Repo syncs this doc + auto-persists it to
-    // R2 (its normal debounced save). "saved" acks then flow from onPersist (boot).
-    // NB: do NOT read handle.doc()/re-find here to ack an initial state — doing so
-    // mid-sync storms the synchronizer (verified). So a client that connects but
-    // never edits stays "Saving…" until its first persisted change — a safe UNDER-
-    // claim (never a false "Saved"). TODO: a non-re-entrant initial ack on connect.
+    // R2 (its normal debounced save). Ongoing "saved" acks flow from onPersist.
     void Promise.resolve(this.repo!.find(documentId as never)).catch(() => {
       this.known.delete(documentId);
     });
+  }
+
+  /**
+   * Ack a doc's durable R2 heads — for the open-but-never-edited case (R4). Read the
+   * heads STRAIGHT FROM R2, independent of the Repo handle (touching the handle
+   * mid-sync storms the synchronizer — verified). R2 is the durable source, so this
+   * is honest with NO race against client sync. A brand-new doc (no R2 chunks yet)
+   * has no durable heads → no ack; it gets its first ack via onPersist.
+   */
+  private async ackInitialFromR2(documentId: string): Promise<void> {
+    if (!this.storage) return;
+    try {
+      const snapshot = await this.storage.loadRange([documentId, "snapshot"]);
+      const incremental = await this.storage.loadRange([documentId, "incremental"]);
+      const parts = [...snapshot, ...incremental]
+        .map((c) => c.data)
+        .filter((d): d is Uint8Array => !!d);
+      if (parts.length === 0) return; // brand-new doc, not durable yet
+      const total = parts.reduce((n, p) => n + p.length, 0);
+      const merged = new Uint8Array(total);
+      let offset = 0;
+      for (const p of parts) {
+        merged.set(p, offset);
+        offset += p.length;
+      }
+      const doc = A.loadIncremental(A.init(), merged);
+      this.net.announceSaved(documentId, A.getHeads(doc) as unknown as string[]);
+    } catch {
+      /* transient R2 read failure; the client stays "Saving…" until a persist acks */
+    }
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -139,6 +171,14 @@ export class SyncDocDO extends DurableObject<Env> {
 
     if (msg.type === "sync" && typeof msg.documentId === "string") {
       this.ensureDoc(msg.documentId);
+      // The first time THIS client (peerId) syncs THIS doc, ack its durable R2 heads
+      // (R4) — per-(peer,doc) so a reconnecting client re-acks even when the DO still
+      // has the doc cached. Ongoing edits ack via onPersist.
+      const ackKey = `${state.peerId}:${msg.documentId}`;
+      if (state.peerId && !this.initialAcked.has(ackKey)) {
+        this.initialAcked.add(ackKey);
+        void this.ackInitialFromR2(msg.documentId);
+      }
     }
     this.net.handleFrame(message, msg);
   }
