@@ -18,7 +18,11 @@ describe("session crypto (HS256/jose) — roundtrip + tamper/forgery/expiry", ()
 
   it("rejects a tampered token", async () => {
     const token = await signSession(OWNER, SECRET);
-    const tampered = token.slice(0, -1) + (token.endsWith("A") ? "B" : "A");
+    // Flip the FIRST signature char — its 6 bits are all significant. (Flipping the
+    // LAST char is flaky: its low bits are base64 padding, so the change can decode
+    // to the same signature bytes and still verify.)
+    const [header, payload, sig] = token.split(".");
+    const tampered = `${header}.${payload}.${sig[0] === "A" ? "B" : "A"}${sig.slice(1)}`;
     expect(await verifySession(tampered, SECRET)).toBeNull();
   });
 
