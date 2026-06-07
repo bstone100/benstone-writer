@@ -1,0 +1,53 @@
+name: Deploy
+
+# TAG-GATED deploy: pushing a semver tag (e.g. v0.1.0) is the ONLY thing that ships
+# the site. The tag must pass every CI gate — lint, typecheck, unit tests, build,
+# secret-scan — and only then does wrangler deploy the Worker. Branch pushes never
+# deploy (that's ci.yml); cutting a tag is a deliberate release.
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The same gates as CI — a release must be green on all of them before it ships.
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm -r --if-present check
+      - name: Unit tests
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy Worker to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: deploy
