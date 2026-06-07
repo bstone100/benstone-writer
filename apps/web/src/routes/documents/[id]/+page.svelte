@@ -5,7 +5,7 @@
   import TopBar from "$lib/TopBar.svelte";
   import { session } from "$lib/owner.svelte";
   import { rpc } from "$lib/rpc";
-  import type { FeedEvent } from "@bw/schema";
+  import type { FeedEvent, VersionMeta } from "@bw/schema";
   import type { SaveState } from "@bw/data";
   import type { PageData } from "./$types";
 
@@ -17,15 +17,20 @@
   // the load already proved the owner — so we drop straight into the editor. The
   // editor/CRDT bundle is the ONLY place it loads, and only client-side.
   let editing = $state(false);
-  let publishing = $state(false);
   let island = $state<typeof import("@bw/ui") | null>(null);
   const EditorComp = $derived(island?.Editor);
+  const HistoryComp = $derived(island?.History);
 
   // Cloud-save status (R4) — honest durability: "Saved" only once the cloud holds
   // an R2-persisted copy of what's on screen (safe to close the laptop).
   const SAVE_LABEL: Record<SaveState, string> = { offline: "Offline", saving: "Saving…", saved: "Saved" };
   let saveState = $state<SaveState | undefined>();
   let unsubStatus: (() => void) | undefined;
+
+  // Version model (R5) — the history panel + the server's live pointer / vN tags.
+  let showHistory = $state(false);
+  let liveHeads = $state<string[] | null>(null);
+  let versions = $state<VersionMeta[]>([]);
 
   onMount(() => {
     if (!data.post) void startEdit(); // draft: owner proven by the load → edit at once
@@ -58,20 +63,40 @@
     }
     withTransition(() => (editing = true));
   }
-  async function publishEdits() {
-    if (publishing) return;
-    publishing = true;
-    try {
-      island ??= await import("@bw/ui");
-      const { headsOf } = await import("@bw/data");
-      const heads = await headsOf(data.id);
-      const req = await island.renderForPublish(data.id, heads);
-      await rpc.makeLive({ ...req, heads }); // make the current version live (R5)
-      withTransition(() => (editing = false));
-      void invalidateAll();
-    } finally {
-      publishing = false;
-    }
+
+  // The server owns the live pointer + the monotonic vN counter; refetch after any
+  // version action so the panel's crown / vN tags reflect the durable truth (R5).
+  async function refreshVersions() {
+    const v = await rpc.versions({ id: data.id });
+    liveHeads = v.liveHeads;
+    versions = v.versions;
+  }
+  async function openHistory() {
+    island ??= await import("@bw/ui");
+    await refreshVersions();
+    showHistory = true;
+  }
+
+  // ⋮ Make live — render this version to static HTML and move LIVE to it (R5).
+  async function makeLive(heads: string[]) {
+    island ??= await import("@bw/ui");
+    const req = await island.renderForPublish(data.id, heads);
+    await rpc.makeLive({ ...req, heads });
+    await refreshVersions();
+    void invalidateAll(); // the public projection changed
+  }
+  // ⋮ Restore to draft — roll this version's content forward to HEAD (one linear
+  // change; §3.3). The draft becomes that version; drop into the editor to see it.
+  async function restore(heads: string[]) {
+    const { restoreToHead } = await import("@bw/data");
+    await restoreToHead(data.id, heads);
+    showHistory = false;
+    if (!editing) await startEdit();
+  }
+  // ⋮ Name version — attach a human label (distinct from the automatic vN).
+  async function nameVersion(heads: string[], name: string) {
+    await rpc.nameVersion({ id: data.id, heads, name });
+    await refreshVersions();
   }
 </script>
 
@@ -82,14 +107,12 @@
 
 <TopBar>
   {#if session.owner}
+    {#if editing && saveState}<Text size="sm" tone="muted" family="sans">{SAVE_LABEL[saveState]}</Text>{/if}
+    <Button variant="link" onclick={openHistory}>History</Button>
     {#if editing}
-      {#if saveState}<Text size="sm" tone="muted" family="sans">{SAVE_LABEL[saveState]}</Text>{/if}
       {#if data.post}
         <Button variant="link" onclick={() => withTransition(() => (editing = false))}>Done</Button>
       {/if}
-      <Button variant="link" disabled={publishing} onclick={publishEdits}>
-        {publishing ? "Publishing…" : data.post ? "Publish ↗" : "Publish"}
-      </Button>
     {:else}
       <Button variant="link" onclick={startEdit}>Edit</Button>
     {/if}
@@ -100,4 +123,16 @@
   <EditorComp id={data.id} />
 {:else if data.post}
   <Reader post={data.post} />
+{/if}
+
+{#if showHistory && HistoryComp}
+  <HistoryComp
+    id={data.id}
+    {liveHeads}
+    {versions}
+    onMakeLive={makeLive}
+    onRestore={restore}
+    onName={nameVersion}
+    onclose={() => (showHistory = false)}
+  />
 {/if}

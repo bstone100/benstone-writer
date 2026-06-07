@@ -19,7 +19,6 @@ export { default as Menu, type MenuItem } from "./Menu.svelte";
 // ---- Composed, data-aware components.
 export { default as Editor } from "./Editor.svelte";
 export { default as History } from "./History.svelte";
-export { default as BranchPicker } from "./BranchPicker.svelte";
 export { default as DocCard } from "./DocCard.svelte";
 export { default as Reader } from "./Reader.svelte";
 export { default as Prose } from "./Prose.svelte";

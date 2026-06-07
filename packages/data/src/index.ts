@@ -112,22 +112,15 @@ export function enableSync(documentId: string): void {
 }
 
 /* ------------------------------------------------------------------ *
- * Document registry — families & branches (§8). Each document is its own
- * Automerge doc; the FORK relationship (which family, forked from where,
- * at what point) lives here, relationally. The studio library lists family
- * roots; the BranchPicker lists one family's branches. Each branch is a
- * sibling timeline sharing ancestry up to its fork point (Patchwork).
- * (Local dev stand-in for D1; the registry itself syncs with multi-device.)
+ * Document registry (§8) — the index of which documents exist, so the owner's
+ * index can list them. Each piece is its own Automerge doc; this just names
+ * them. ROUND-2 collapsed the UX to ONE linear history per document (HEAD/LIVE
+ * pointers, §3.3), so round one's fork/family vocabulary is gone — there are no
+ * branches to relate. (Local dev stand-in for D1; the registry syncs across
+ * devices.)
  * ------------------------------------------------------------------ */
 interface RegistryEntry {
   id: string;
-  /** The family's root document id; every branch of the family shares it. */
-  familyId: string;
-  /** The document this was forked from (absent for a family root). */
-  parent?: string;
-  /** Heads the fork was taken at (absent for a root). */
-  forkedAtHeads?: string[];
-  name: string;
   createdAt: number;
 }
 interface Registry {
@@ -236,8 +229,7 @@ export function createDocument(initial?: Partial<Document>): string {
   const h = repo().create<Document>(initialDoc);
   const id = h.documentId as unknown as string;
   handles.set(id, Promise.resolve(h));
-  // A new document is the root ("main") of its own family (§8).
-  addEntry({ id, familyId: id, name: "main", createdAt: now });
+  addEntry({ id, createdAt: now });
   return id;
 }
 
@@ -322,84 +314,6 @@ export function documentAt(id: string, heads: string[]): Promise<Snapshot> {
   });
 }
 
-/**
- * branchFrom(id, heads) — fork a new branch document from a past point (§8). The
- * fork shares ancestry up to `heads` (Patchwork pattern); the original is
- * untouched (nothing is ever deleted). Registers the branch in the family so the
- * BranchPicker can list it. Returns the new document id.
- */
-export function branchFrom(id: string, heads: string[]): Promise<string> {
-  return handleFor(id).then((h) => {
-    const forked = A.clone(A.view(amDoc(h.doc()), heads));
-    const branch = repo().import<Document>(A.save(forked));
-    const newId = branch.documentId as unknown as string;
-    handles.set(newId, Promise.resolve(branch));
-    const now = Date.now();
-    void registryHandle().then((reg) =>
-      reg.change((r) => {
-        if (r.docs.some((d) => d.id === newId)) return;
-        const familyId = r.docs.find((d) => d.id === id)?.familyId ?? id;
-        r.docs.push({ id: newId, familyId, parent: id, forkedAtHeads: heads, name: "fork", createdAt: now });
-      }),
-    );
-    return newId;
-  });
-}
-
-/** branchHere(id) — fork a branch from the document's CURRENT state. */
-export function branchHere(id: string): Promise<string> {
-  return handleFor(id).then((h) => branchFrom(id, A.getHeads(amDoc(h.doc()))));
-}
-
-export interface BranchInfo {
-  id: string;
-  name: string;
-  parent?: string;
-  forkedAtHeads?: string[];
-  createdAt: number;
-  /** True for the branch currently being viewed. */
-  current: boolean;
-}
-
-/** branches(id) — reactive list of the branches in this document's family (§8). */
-export function branches(id: string): Readable<BranchInfo[]> {
-  return readable<BranchInfo[]>([], (set) => {
-    let handle: DocHandle<Registry> | undefined;
-    let active = true;
-    const onChange = () => {
-      if (!handle) return;
-      const docs = handle.doc().docs;
-      const familyId = docs.find((d) => d.id === id)?.familyId ?? id;
-      const fam: BranchInfo[] = docs
-        .filter((d) => d.familyId === familyId)
-        .sort((a, b) => a.createdAt - b.createdAt)
-        .map((d) => ({
-          id: d.id,
-          name: d.name,
-          parent: d.parent,
-          forkedAtHeads: d.forkedAtHeads,
-          createdAt: d.createdAt,
-          current: d.id === id,
-        }));
-      // Always include the doc being viewed, even if it isn't registered.
-      if (!fam.some((b) => b.id === id)) {
-        fam.unshift({ id, name: "main", createdAt: 0, current: true });
-      }
-      set(fam);
-    };
-    void registryHandle().then((h) => {
-      if (!active) return;
-      handle = h;
-      h.on("change", onChange);
-      onChange();
-    });
-    return () => {
-      active = false;
-      handle?.off("change", onChange);
-    };
-  });
-}
-
 export interface PublishSource {
   title: string;
   /** Automerge rich-text spans of the body, for static-HTML rendering (§4). */
@@ -444,16 +358,15 @@ export function headsOf(id: string): Promise<string[]> {
 }
 
 /**
- * collection() — reactive list of family-ROOT document ids (§11.1). The library
- * lists roots only; branches live behind the BranchPicker. Each card reads its
- * own title by path.
+ * collection() — reactive list of all document ids (§11.1). The owner index
+ * lists them; each card reads its own title by path.
  */
 export function collection(): Readable<{ ids: string[] }> {
   return readable<{ ids: string[] }>({ ids: [] }, (set) => {
     let handle: DocHandle<Registry> | undefined;
     let active = true;
     const onChange = () => {
-      if (handle) set({ ids: handle.doc().docs.filter((d) => !d.parent).map((d) => d.id) });
+      if (handle) set({ ids: handle.doc().docs.map((d) => d.id) });
     };
     void registryHandle().then((h) => {
       if (!active) return;
