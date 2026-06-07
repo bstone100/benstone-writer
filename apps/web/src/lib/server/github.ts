@@ -11,11 +11,15 @@ import type { RequestEvent } from "@sveltejs/kit";
  * from the live origin so dev and prod each resolve their own correct callback.
  */
 export function createGitHub(event: RequestEvent): GitHub {
-  return new GitHub(
-    env.GITHUB_CLIENT_ID,
-    env.GITHUB_CLIENT_SECRET,
-    `${event.url.origin}/auth/callback`,
-  );
+  // `$env/dynamic/private` types these as `string | undefined`. Narrow to `string`
+  // (and fail loudly if unset) — same contract as sessionSecret(). This also keeps
+  // the typecheck honest in CI, where no secrets are present at `svelte-kit sync`.
+  const clientId = env.GITHUB_CLIENT_ID;
+  const clientSecret = env.GITHUB_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error("GitHub OAuth is not configured (GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET)");
+  }
+  return new GitHub(clientId, clientSecret, `${event.url.origin}/auth/callback`);
 }
 
 /** Exchange an access token for the caller's immutable GitHub numeric id. */
