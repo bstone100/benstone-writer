@@ -8,14 +8,14 @@ describe("reader feed — pub/sub", () => {
     const got: unknown[] = [];
     const unsub = subscribeFeed((e) => got.push(e));
 
-    emitFeed({ type: "published", slug: "a", updatedAt: 1 });
-    emitFeed({ type: "unpublished", slug: "b" });
+    emitFeed({ type: "published", id: "a", updatedAt: 1 });
+    emitFeed({ type: "unpublished", id: "b" });
     unsub();
-    emitFeed({ type: "published", slug: "c", updatedAt: 2 }); // after unsub → not seen
+    emitFeed({ type: "published", id: "c", updatedAt: 2 }); // after unsub → not seen
 
     expect(got).toEqual([
-      { type: "published", slug: "a", updatedAt: 1 },
-      { type: "unpublished", slug: "b" },
+      { type: "published", id: "a", updatedAt: 1 },
+      { type: "unpublished", id: "b" },
     ]);
   });
 
@@ -26,8 +26,8 @@ describe("reader feed — pub/sub", () => {
     });
     const unsubGood = subscribeFeed((e) => got.push(e));
 
-    expect(() => emitFeed({ type: "unpublished", slug: "x" })).not.toThrow();
-    expect(got).toEqual([{ type: "unpublished", slug: "x" }]);
+    expect(() => emitFeed({ type: "unpublished", id: "x" })).not.toThrow();
+    expect(got).toEqual([{ type: "unpublished", id: "x" }]);
 
     unsubBad();
     unsubGood();

@@ -11,3 +11,6 @@ dist/
 # dev-only publish store (D1 in prod)
 .dev-published.json
 **/.dev-published.json
+
+# local dev screenshots
+.dev-shots/

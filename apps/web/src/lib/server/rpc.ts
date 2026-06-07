@@ -16,12 +16,12 @@ export const handlers: {
 } = {
   async publish(input, env) {
     const post = await upsertPost(env?.DB, input, Date.now());
-    await notifyFeed(env, { type: "published", slug: post.slug, updatedAt: post.publishedAt });
-    return { slug: post.slug, publishedAt: post.publishedAt };
+    await notifyFeed(env, { type: "published", id: post.id, updatedAt: post.publishedAt });
+    return { id: post.id, publishedAt: post.publishedAt };
   },
   async unpublish(input, env) {
-    await deletePost(env?.DB, input.slug);
-    await notifyFeed(env, { type: "unpublished", slug: input.slug });
+    await deletePost(env?.DB, input.id);
+    await notifyFeed(env, { type: "unpublished", id: input.id });
     return { ok: true };
   },
 };

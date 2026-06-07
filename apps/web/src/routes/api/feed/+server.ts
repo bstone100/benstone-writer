@@ -5,7 +5,7 @@ import type { RequestHandler } from "./$types";
 /**
  * GET /api/feed — Server-Sent Events stream for the public reader (§7 #5).
  * One-way server→reader push; readers update in place (no reload/poll). Public
- * (emits only "post published: {slug}", nothing sensitive). At deploy this is
+ * (emits only "post published: {id}", nothing sensitive). At deploy this is
  * served by ReaderFeedDO; in dev by the in-process hub.
  */
 export const GET: RequestHandler = ({ request, platform }) => {

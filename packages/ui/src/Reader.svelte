@@ -32,7 +32,7 @@
 
 <article class="reader">
   <Prose>
-    <h1 class="rtitle" style:view-transition-name={vtName(P.published(post.slug))}>
+    <h1 class="rtitle" style:view-transition-name={vtName(P.published(post.id))}>
       {post.title || "Untitled"}
     </h1>
     <p class="rmeta">{date}</p>

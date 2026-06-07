@@ -24,5 +24,5 @@ export { default as Reader } from "./Reader.svelte";
 export { default as Prose } from "./Prose.svelte";
 
 export { placeholder } from "./placeholder";
-export { renderForPublish, slugify } from "./render";
+export { renderForPublish } from "./render";
 export { vtName, transitionKind, type TransitionKind } from "./motion";

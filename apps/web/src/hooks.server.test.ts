@@ -19,17 +19,17 @@ function run(pathname: string) {
 
 beforeEach(() => owner.mockReset());
 
-describe("auth gate (hooks.server) — one gate, public-by-default (§13)", () => {
-  it("lets a non-owner through a public path", async () => {
+describe("auth gate (hooks.server) — one gate, public-by-default (ROUND-2 R1/R3)", () => {
+  it("lets a non-owner through a public essay page (the reader plane)", async () => {
     owner.mockResolvedValue(false);
-    const { call, resolve, event } = run("/writing/some-post");
+    const { call, resolve, event } = run("/documents/abc123");
     await expect(call()).resolves.toBe("RESOLVED");
     expect(resolve).toHaveBeenCalledWith(event);
   });
 
-  it("redirects a non-owner away from /studio", async () => {
+  it("lets a non-owner through the index", async () => {
     owner.mockResolvedValue(false);
-    await expect(run("/studio").call()).rejects.toMatchObject({ status: 303, location: "/" });
+    await expect(run("/").call()).resolves.toBe("RESOLVED");
   });
 
   it("401s a non-owner hitting an /api/rpc verb (no redirect for APIs)", async () => {
@@ -37,16 +37,14 @@ describe("auth gate (hooks.server) — one gate, public-by-default (§13)", () =
     await expect(run("/api/rpc/publish").call()).rejects.toMatchObject({ status: 401 });
   });
 
-  it("lets the owner into the private surface", async () => {
-    owner.mockResolvedValue(true);
-    await expect(run("/studio").call()).resolves.toBe("RESOLVED");
+  it("lets the owner into the private RPC surface", async () => {
     owner.mockResolvedValue(true);
     await expect(run("/api/rpc/publish").call()).resolves.toBe("RESOLVED");
   });
 
   it("always records the resolved owner on locals", async () => {
     owner.mockResolvedValue(true);
-    const { call, event } = run("/writing/x");
+    const { call, event } = run("/documents/x");
     await call();
     expect(event.locals.owner).toBe(true);
   });

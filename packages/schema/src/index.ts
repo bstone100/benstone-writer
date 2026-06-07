@@ -26,15 +26,14 @@ export type Document = z.infer<typeof DocumentSchema>;
  * contract for both the publish RPC and the reader's SSR load (define-once §14).
  */
 export const PublishedPostSchema = z.object({
-  slug: z.string(),
+  /** The source document's id (documents/{id}) — this IS the key and the URL; no slug exists anywhere (ROUND-2 R2). */
+  id: z.string(),
   title: z.string(),
   /** Pre-rendered body HTML (sanitized at render time from our own schema). */
   html: z.string(),
   /** Plain-text lead for the index + meta tags. */
   excerpt: z.string(),
   publishedAt: z.number(),
-  /** The `documents/{id}` this was published from (for the inline-edit affordance). */
-  sourceId: z.string(),
 });
 export type PublishedPost = z.infer<typeof PublishedPostSchema>;
 
@@ -46,11 +45,11 @@ export type PublishRequest = z.infer<typeof PublishRequestSchema>;
  * Reader-feed events (§7 #5, §14.1.C) — pushed over SSE to open readers so the
  * page updates in place (never a reload/poll). Defined once; the feed server
  * emits these and the reader client parses them. A discriminated union: a
- * (re)publish carries `updatedAt`; an unpublish just the slug.
+ * (re)publish carries `updatedAt`; an unpublish just the id.
  */
 export const FeedEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("published"), slug: z.string(), updatedAt: z.number() }),
-  z.object({ type: z.literal("unpublished"), slug: z.string() }),
+  z.object({ type: z.literal("published"), id: z.string(), updatedAt: z.number() }),
+  z.object({ type: z.literal("unpublished"), id: z.string() }),
 ]);
 export type FeedEvent = z.infer<typeof FeedEventSchema>;
 
@@ -68,11 +67,11 @@ export const RpcContract = {
   /** Store a client-rendered post + notify the reader-feed. */
   publish: {
     input: PublishRequestSchema,
-    output: z.object({ slug: z.string(), publishedAt: z.number() }),
+    output: z.object({ id: z.string(), publishedAt: z.number() }),
   },
   /** Remove a published post + notify the reader-feed. */
   unpublish: {
-    input: z.object({ slug: z.string() }),
+    input: z.object({ id: z.string() }),
     output: z.object({ ok: z.literal(true) }),
   },
 } as const;
@@ -90,8 +89,8 @@ export const P = {
       body: ["documents", id, "body"] as Path,
     };
   },
-  published(slug: string): Path {
-    return ["published", slug];
+  published(id: string): Path {
+    return ["published", id];
   },
 } as const;
 

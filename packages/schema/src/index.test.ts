@@ -10,11 +10,11 @@ import {
 } from "./index";
 
 describe("P — typed path builders (§11.1)", () => {
-  it("builds document paths", () => {
+  it("builds document + published paths (the id IS the key; no slug — ROUND-2 R2)", () => {
     expect(P.document("abc").root).toEqual(["documents", "abc"]);
     expect(P.document("abc").title).toEqual(["documents", "abc", "title"]);
     expect(P.document("abc").body).toEqual(["documents", "abc", "body"]);
-    expect(P.published("my-slug")).toEqual(["published", "my-slug"]);
+    expect(P.published("abc")).toEqual(["published", "abc"]);
   });
 });
 
@@ -44,27 +44,27 @@ describe("schemas validate the data contract (§14)", () => {
     expect(DocumentSchema.safeParse({ title: "t", createdAt: 1, updatedAt: 2 }).success).toBe(true);
     expect(DocumentSchema.safeParse({ title: 123, createdAt: 1, updatedAt: 2 }).success).toBe(false);
   });
-  it("validates a published post and its publish request", () => {
-    const post = { slug: "s", title: "t", html: "<p>x</p>", excerpt: "x", publishedAt: 1, sourceId: "d1" };
+  it("validates a published post and its publish request (keyed by id, no slug)", () => {
+    const post = { id: "d1", title: "t", html: "<p>x</p>", excerpt: "x", publishedAt: 1 };
     expect(PublishedPostSchema.safeParse(post).success).toBe(true);
     // the request is the post minus the server-stamped time
     const { publishedAt: _omit, ...req } = post;
     expect(PublishRequestSchema.safeParse(req).success).toBe(true);
     expect(PublishRequestSchema.safeParse(post).success).toBe(true); // extra key tolerated
-    expect(PublishRequestSchema.safeParse({ slug: "s" }).success).toBe(false); // missing fields
+    expect(PublishRequestSchema.safeParse({ id: "d1" }).success).toBe(false); // missing fields
   });
 });
 
 describe("RPC contract — define-once, zod-parsed at ingress (§14.1.B)", () => {
-  const req = { slug: "s", title: "t", html: "<p>x</p>", excerpt: "x", sourceId: "d1" };
+  const req = { id: "d1", title: "t", html: "<p>x</p>", excerpt: "x" };
   it("publish: validates input + output", () => {
     expect(RpcContract.publish.input.safeParse(req).success).toBe(true);
-    expect(RpcContract.publish.input.safeParse({ slug: "s" }).success).toBe(false);
-    expect(RpcContract.publish.output.safeParse({ slug: "s", publishedAt: 1 }).success).toBe(true);
-    expect(RpcContract.publish.output.safeParse({ slug: "s" }).success).toBe(false);
+    expect(RpcContract.publish.input.safeParse({ id: "d1" }).success).toBe(false);
+    expect(RpcContract.publish.output.safeParse({ id: "d1", publishedAt: 1 }).success).toBe(true);
+    expect(RpcContract.publish.output.safeParse({ id: "d1" }).success).toBe(false);
   });
   it("unpublish: validates input + output", () => {
-    expect(RpcContract.unpublish.input.safeParse({ slug: "s" }).success).toBe(true);
+    expect(RpcContract.unpublish.input.safeParse({ id: "d1" }).success).toBe(true);
     expect(RpcContract.unpublish.input.safeParse({}).success).toBe(false);
     expect(RpcContract.unpublish.output.safeParse({ ok: true }).success).toBe(true);
     expect(RpcContract.unpublish.output.safeParse({ ok: false }).success).toBe(false);
@@ -73,11 +73,11 @@ describe("RPC contract — define-once, zod-parsed at ingress (§14.1.B)", () =>
 
 describe("FeedEvent — discriminated union (§14.1.C)", () => {
   it("accepts both variants", () => {
-    expect(FeedEventSchema.safeParse({ type: "published", slug: "s", updatedAt: 1 }).success).toBe(true);
-    expect(FeedEventSchema.safeParse({ type: "unpublished", slug: "s" }).success).toBe(true);
+    expect(FeedEventSchema.safeParse({ type: "published", id: "d1", updatedAt: 1 }).success).toBe(true);
+    expect(FeedEventSchema.safeParse({ type: "unpublished", id: "d1" }).success).toBe(true);
   });
   it("rejects a published event missing updatedAt, and an unknown type", () => {
-    expect(FeedEventSchema.safeParse({ type: "published", slug: "s" }).success).toBe(false);
-    expect(FeedEventSchema.safeParse({ type: "edited", slug: "s" }).success).toBe(false);
+    expect(FeedEventSchema.safeParse({ type: "published", id: "d1" }).success).toBe(false);
+    expect(FeedEventSchema.safeParse({ type: "edited", id: "d1" }).success).toBe(false);
   });
 });
