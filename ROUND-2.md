@@ -285,9 +285,10 @@ This is the entire basis of §3.3. The probe is a re-runnable receipt; keep it.
 - **MEASURED end-to-end** (wrangler dev, real DO+R2, real browser): realistic
   sustained typing settles to a durable **Saved** with ~33 sync frames (no storm);
   edit→durable-**Saved ~20–50 ms** locally; **Offline** on server-kill is instant.
-- **Known gap (safe under-claim):** opening an existing doc and never editing stays
-  "Saving…" until the first persisted change — never a false "Saved." TODO: a
-  non-re-entrant initial ack on connect.
+- **Initial ack (open-but-never-edited):** on the first sync from each client the DO
+  reads the doc's durable heads **straight from R2** (independent of the Repo handle,
+  which storms mid-sync) and acks them — so opening an existing doc shows "Saved" at
+  once (verified). A brand-new doc (no R2 chunks) gets its first ack via `onPersist`.
 
 ### 4.3 GitHub OAuth — **VERIFIED** (including the trap that only bites in production)
 - **User-Agent trap is real and proven.** `api.github.com` with **no** UA →
