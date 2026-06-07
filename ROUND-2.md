@@ -254,25 +254,40 @@ Ran `workers/api/_probe-versions.mjs` against the installed **Automerge 3.2.6**;
 
 This is the entire basis of §3.3. The probe is a re-runnable receipt; keep it.
 
-### 4.2 Cloud sync-ack ("Saved") + faster-than-Google — **mechanism VERIFIED, latency floor MEASURED**
+### 4.2 Cloud-save status ("Saved" = durable in R2) — **IMPLEMENTED + VERIFIED (step 4)**
 - Sync stack is **automerge-repo 2.5.6** (confirmed via the resolved symlink and
   `package.json`; an earlier "2.6.0-prerelease" scare was a **stale pnpm-store
   dir** and is false — the linked version is 2.5.6). In 2.5.6 source: a DO can
   report persisted heads and clients can observe them (`getRemoteHeads`,
   `"remote-heads"` event, `heads()`, `enableRemoteHeadsGossiping`). So a
   "cloud has my latest" signal is real.
-- **Latency floor MEASURED** to the live Worker: **~33ms warm** round-trip (TTFB
-  31–35ms; cold/first-hit SSR 90–285ms). The sync WebSocket is a **persistent
-  warm** connection while editing, so a save-ack ≈ one warm message RTT + the R2
-  write ≈ **tens of ms**, vs. Google's debounced **0.5–2s**. ~10× headroom.
-- **DESIGN decision (§6):** **"Saved" = durable** — the DO acks **after** it
-  persists the change to R2, not merely after applying it in memory (matches
-  Google's "Saved to Drive" meaning; still ~10× faster). Use a **direct
-  application-level ack** from `SyncDocDO` (tight, controllable), not the slower
-  peer-gossip cadence.
-- **INFERRED (confirm at build):** the end-to-end "Saving→Saved" number. Measure
-  it with the mint-session test client (baseline + after, per `how-we-build.md`)
-  the moment the save path exists.
+- **The goal is HONESTY, not beating Google** (Ben's correction — the "beat
+  Google" framing biased the first attempt into a per-keystroke race that stormed):
+  the indicator shows *exactly* when the work is durably backed up so the user
+  knows it's safe to close the tab — **never a false "Saved."** Google-like timing
+  (a beat after you pause) **emerges naturally** because the sync layer auto-saves
+  on a debounce; we don't force it. Latency floor to the live Worker: ~33 ms warm.
+- **The honest, non-storming design (hard-won — commit `d18f908`):**
+  - The DO must **NOT** force a flush per change. `repo.flush()` per change — OR
+    reading `handle.doc()`/`repo.find()` on the handle to ack **mid-sync** — *re-
+    enters automerge-repo's synchronizer and STORMS it* (15k–95k sync frames for a
+    handful of edits; the doc never converges). **Never touch the handle during
+    sync to produce an ack.**
+  - automerge-repo **already auto-saves to R2 on a debounce** (`asyncThrottle`);
+    we just **report** it. `R2StorageAdapter` fires a callback AFTER each durable
+    `put`; the DO acks the storage subsystem's `savedHeads` (post-persist, captured
+    from the `doc-saved`/`doc-compacted` events) via a `"saved"` frame. Client:
+    local heads == durable heads → **Saved**; behind → **Saving…**; socket down →
+    **Offline**.
+  - Honesty is **post-persist**: `doc-saved` fires PRE-write, so we ack only once
+    the matching R2 `put` resolves. Verified the acked heads exactly equal the
+    durable R2 heads.
+- **MEASURED end-to-end** (wrangler dev, real DO+R2, real browser): realistic
+  sustained typing settles to a durable **Saved** with ~33 sync frames (no storm);
+  edit→durable-**Saved ~20–50 ms** locally; **Offline** on server-kill is instant.
+- **Known gap (safe under-claim):** opening an existing doc and never editing stays
+  "Saving…" until the first persisted change — never a false "Saved." TODO: a
+  non-re-entrant initial ack on connect.
 
 ### 4.3 GitHub OAuth — **VERIFIED** (including the trap that only bites in production)
 - **User-Agent trap is real and proven.** `api.github.com` with **no** UA →
