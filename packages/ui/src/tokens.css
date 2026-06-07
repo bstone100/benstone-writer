@@ -69,6 +69,9 @@
   --radius-lg: 14px;
   --radius-pill: 999px; /* fully-round; pills/chips */
 
+  /* ---- Elevation (popovers, menus, dialogs) */
+  --shadow-popover: 0 8px 28px -10px color-mix(in srgb, var(--color-ink) 28%, transparent);
+
   /* ---- Motion (§12: the only home for motion values). Compositor-friendly. */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
