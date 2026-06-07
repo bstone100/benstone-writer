@@ -18,7 +18,14 @@ import type {
  * and a binding (not a network call).
  */
 export class R2StorageAdapter implements StorageAdapterInterface {
-  constructor(private readonly bucket: R2Bucket) {}
+  /**
+   * @param onPersist optional hook fired AFTER a durable write resolves, with the
+   *   document id (`key[0]`) + chunk type (`key[1]`) — the cloud-save signal (R4).
+   */
+  constructor(
+    private readonly bucket: R2Bucket,
+    private readonly onPersist?: (documentId: string, type: string) => void,
+  ) {}
 
   private objectKey(key: StorageKey): string {
     return key.join("/");
@@ -32,6 +39,7 @@ export class R2StorageAdapter implements StorageAdapterInterface {
 
   async save(key: StorageKey, data: Uint8Array): Promise<void> {
     await this.bucket.put(this.objectKey(key), data);
+    if (key[0] && key[1]) this.onPersist?.(key[0], key[1]); // AFTER the durable R2 write resolves (R4)
   }
 
   async remove(key: StorageKey): Promise<void> {

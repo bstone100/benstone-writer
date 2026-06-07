@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invalidateAll, goto } from "$app/navigation";
-  import { Reader, Button } from "@bw/ui/reader";
+  import { Reader, Button, Text } from "@bw/ui/reader";
   import TopBar from "$lib/TopBar.svelte";
   import { session } from "$lib/owner.svelte";
   import { rpc } from "$lib/rpc";
   import type { FeedEvent } from "@bw/schema";
+  import type { SaveState } from "@bw/data";
   import type { PageData } from "./$types";
 
   let { data }: { data: PageData } = $props();
@@ -20,6 +21,12 @@
   let island = $state<typeof import("@bw/ui") | null>(null);
   const EditorComp = $derived(island?.Editor);
 
+  // Cloud-save status (R4) — honest durability: "Saved" only once the cloud holds
+  // an R2-persisted copy of what's on screen (safe to close the laptop).
+  const SAVE_LABEL: Record<SaveState, string> = { offline: "Offline", saving: "Saving…", saved: "Saved" };
+  let saveState = $state<SaveState | undefined>();
+  let unsubStatus: (() => void) | undefined;
+
   onMount(() => {
     if (!data.post) void startEdit(); // draft: owner proven by the load → edit at once
 
@@ -33,7 +40,10 @@
     };
     es.addEventListener("published", onEvent);
     es.addEventListener("unpublished", onEvent);
-    return () => es.close();
+    return () => {
+      es.close();
+      unsubStatus?.();
+    };
   });
 
   function withTransition(fn: () => void) {
@@ -42,6 +52,10 @@
   }
   async function startEdit() {
     island ??= await import("@bw/ui"); // the editor chunk — only ever loaded here
+    if (!unsubStatus) {
+      const { saveStatus } = await import("@bw/data"); // dynamic → out of the SSR bundle
+      unsubStatus = saveStatus(data.id).subscribe((s) => (saveState = s));
+    }
     withTransition(() => (editing = true));
   }
   async function publishEdits() {
@@ -67,6 +81,7 @@
 <TopBar>
   {#if session.owner}
     {#if editing}
+      {#if saveState}<Text size="sm" tone="muted" family="sans">{SAVE_LABEL[saveState]}</Text>{/if}
       {#if data.post}
         <Button variant="link" onclick={() => withTransition(() => (editing = false))}>Done</Button>
       {/if}

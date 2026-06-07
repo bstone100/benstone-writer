@@ -18,6 +18,8 @@ export interface WireMessage {
   targetId?: string;
   documentId?: string;
   data?: Uint8Array;
+  /** "saved" frame: the document's DURABLE heads (post-R2-persist) — the cloud-save ack (R4). */
+  heads?: string[];
   peerMetadata?: unknown;
   supportedProtocolVersions?: string[];
   selectedProtocolVersion?: string;

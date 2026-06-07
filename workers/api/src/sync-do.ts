@@ -1,4 +1,4 @@
-import "./shim"; // MUST precede the automerge import below.
+import "./shim"; // MUST precede automerge-repo (which loads Automerge's WASM).
 import { DurableObject } from "cloudflare:workers";
 import { Repo, type PeerId } from "@automerge/automerge-repo";
 import { DONetworkAdapter } from "./do-network-adapter";
@@ -25,6 +25,13 @@ interface SocketState {
  * the surviving sockets (from `ctx.getWebSockets()` + their serialized
  * attachments). No in-memory document state is ever assumed to survive — it's
  * reloaded from R2 on demand.
+ *
+ * Cloud-save signal (ROUND-2 R4): we do NOT force a flush per change (that stormed
+ * the synchronizer). The Repo already auto-saves to R2 on a debounce; we simply
+ * report the result. The storage subsystem emits the heads it's about to persist
+ * (`doc-saved`/`doc-compacted`), and the R2 adapter calls us back AFTER the write
+ * resolves — so the "saved" heads we broadcast to clients are provably durable and
+ * an honest "safe to close the tab" signal.
  */
 export class SyncDocDO extends DurableObject<Env> {
   private readonly net = new DONetworkAdapter();
@@ -32,6 +39,8 @@ export class SyncDocDO extends DurableObject<Env> {
   private booted = false;
   /** Docs we've already asked the Repo to find() this lifetime. */
   private readonly known = new Set<string>();
+  /** Heads the storage subsystem is persisting, per doc; promoted to a durable ack once R2 confirms. */
+  private readonly pendingHeads = new Map<string, string[]>();
 
   private boot(): void {
     if (this.booted) return;
@@ -40,11 +49,24 @@ export class SyncDocDO extends DurableObject<Env> {
     // precise multi-doc client sharePolicy) lands with multi-doc support.
     const serverPeerId = `server:${this.ctx.id.toString()}` as PeerId;
     this.repo = new Repo({
-      storage: new R2StorageAdapter(this.env.DOC_STORE),
+      storage: new R2StorageAdapter(this.env.DOC_STORE, (documentId, type) => {
+        if (type === "incremental" || type === "snapshot") this.ackPersisted(documentId);
+      }),
       network: [this.net],
       peerId: serverPeerId,
       sharePolicy: async () => true, // server mirrors whatever a client syncs
     });
+    this.repo.storageSubsystem?.on("doc-saved", (e) => {
+      const ev = e as unknown as { documentId: string; savedHeads: string[] };
+      this.pendingHeads.set(ev.documentId, ev.savedHeads);
+    });
+    this.repo.storageSubsystem?.on("doc-compacted", (e) => {
+      const ev = e as unknown as { documentId: string; savedHeads: string[] };
+      this.pendingHeads.set(ev.documentId, ev.savedHeads);
+    });
+    // NB: we deliberately do NOT call repo.find() from a storage event (e.g.
+    // "document-loaded"). Doing so re-enters the Repo mid-sync and storms the
+    // synchronizer (verified). The initial ack happens once in ensureDoc instead.
 
     // Re-announce every surviving socket as a peer so the fresh Repo can
     // proactively sync each connected client (not just whoever woke us).
@@ -58,13 +80,22 @@ export class SyncDocDO extends DurableObject<Env> {
     this.booted = true;
   }
 
+  /** A durable R2 write for `documentId` just completed → ack its now-safe heads (R4). */
+  private ackPersisted(documentId: string): void {
+    const heads = this.pendingHeads.get(documentId);
+    if (heads) this.net.announceSaved(documentId, heads);
+  }
+
   /** Ensure the in-DO Repo holds a handle for a doc a peer is syncing. */
   private ensureDoc(documentId: string): void {
     if (this.known.has(documentId)) return;
     this.known.add(documentId);
-    // Side-effecting: instantiates the handle (loads from R2 if present), so the
-    // synchronizer can process the incoming sync frame. Repo.find may reject for
-    // a genuinely-unknown doc; the peer's own changes will still populate it.
+    // Instantiate the handle so the in-DO Repo syncs this doc + auto-persists it to
+    // R2 (its normal debounced save). "saved" acks then flow from onPersist (boot).
+    // NB: do NOT read handle.doc()/re-find here to ack an initial state — doing so
+    // mid-sync storms the synchronizer (verified). So a client that connects but
+    // never edits stays "Saving…" until its first persisted change — a safe UNDER-
+    // claim (never a false "Saved"). TODO: a non-re-entrant initial ack on connect.
     void Promise.resolve(this.repo!.find(documentId as never)).catch(() => {
       this.known.delete(documentId);
     });

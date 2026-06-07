@@ -21,6 +21,46 @@ function syncUrl(documentId: string): string {
 const syncedDocs = new Set<string>();
 const syncAdapters = new Map<string, BrowserWSClientAdapter>();
 
+/* ---- Cloud-save status (ROUND-2 R4): is the work DURABLY in the cloud yet? ----
+ * "saved" means the DO has acked an R2-persist whose heads match what's on screen
+ * — i.e. it is genuinely safe to lose this device. We err toward "saving" and
+ * never show "saved" before the durable heads match (honesty over optimism). */
+export type SaveState = "offline" | "saving" | "saved";
+const cloudHeads = new Map<string, string[]>(); // durable heads acked by the DO (post-R2)
+const localHeadsByDoc = new Map<string, string[]>(); // the doc's current local heads
+const connectedByDoc = new Map<string, boolean>(); // is the sync socket up?
+const statusSubs = new Map<string, Set<(s: SaveState) => void>>();
+
+function sameHeads(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (!a || !b || a.length !== b.length) return false;
+  const set = new Set(b);
+  return a.every((h) => set.has(h));
+}
+function computeStatus(id: string): SaveState {
+  if (connectedByDoc.get(id) === false) return "offline";
+  return sameHeads(localHeadsByDoc.get(id), cloudHeads.get(id)) ? "saved" : "saving";
+}
+function emitStatus(id: string): void {
+  const subs = statusSubs.get(id);
+  if (!subs) return;
+  const s = computeStatus(id);
+  for (const fn of subs) fn(s);
+}
+
+/** saveStatus(id) — reactive cloud-durability status for a document (R4). */
+export function saveStatus(documentId: string): Readable<SaveState> {
+  return readable<SaveState>(computeStatus(documentId), (set) => {
+    let subs = statusSubs.get(documentId);
+    if (!subs) {
+      subs = new Set();
+      statusSubs.set(documentId, subs);
+    }
+    subs.add(set);
+    set(computeStatus(documentId));
+    return () => subs!.delete(set);
+  });
+}
+
 /**
  * The single browser-local Automerge repo — the local-first source of truth
  * (§6, Tier 0). Lazily created so this module is SSR-safe (IndexedDB only
@@ -47,9 +87,28 @@ function repo(): Repo {
 export function enableSync(documentId: string): void {
   if (syncedDocs.has(documentId)) return;
   syncedDocs.add(documentId);
-  const adapter = new BrowserWSClientAdapter(syncUrl(documentId));
+  const adapter = new BrowserWSClientAdapter(syncUrl(documentId), {
+    onSaved: (docId, heads) => {
+      cloudHeads.set(docId, heads);
+      emitStatus(docId);
+    },
+    onConnection: (isUp) => {
+      connectedByDoc.set(documentId, isUp);
+      emitStatus(documentId);
+    },
+  });
   syncAdapters.set(documentId, adapter);
   repo().networkSubsystem.addNetworkAdapter(adapter);
+
+  // Track LOCAL heads so we can tell when the cloud's durable heads have caught up.
+  void handleFor(documentId).then((h) => {
+    const update = () => {
+      localHeadsByDoc.set(documentId, A.getHeads(h.doc() as never));
+      emitStatus(documentId);
+    };
+    h.on("change", update);
+    update();
+  });
 }
 
 /* ------------------------------------------------------------------ *

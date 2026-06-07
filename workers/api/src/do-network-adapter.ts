@@ -138,4 +138,22 @@ export class DONetworkAdapter extends NetworkAdapter {
     this.sockets.delete(peerId);
     this.emit("peer-disconnected", { peerId: peerId as PeerId });
   }
+
+  /**
+   * Broadcast a "saved" ack to every connected client (R4). `heads` are the
+   * document's DURABLE heads — the DO sends this only AFTER the R2 write
+   * completes, so a client showing "Saved" is telling the truth: the work is
+   * safe to lose the device. A plain broadcast (clients filter by documentId);
+   * one DO is one document, so this is one or a few sockets.
+   */
+  announceSaved(documentId: string, heads: string[]): void {
+    const frame = encode({ type: "saved", senderId: this.peerId, documentId, heads });
+    for (const ws of this.sockets.values()) {
+      try {
+        ws.send(frame);
+      } catch {
+        /* dead socket; the DO's close handler removes it */
+      }
+    }
+  }
 }

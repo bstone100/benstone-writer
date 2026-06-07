@@ -12,6 +12,8 @@ interface WireMessage {
   type: string;
   senderId: PeerId;
   targetId?: PeerId;
+  documentId?: string;
+  heads?: string[];
   peerMetadata?: PeerMetadata;
   message?: string;
 }
@@ -34,12 +36,24 @@ export class BrowserWSClientAdapter extends NetworkAdapter {
   readonly #readyPromise: Promise<void>;
   readonly #remotePeers = new Set<PeerId>();
   #closed = false;
+  readonly #onSaved?: (documentId: string, heads: string[]) => void;
+  readonly #onConnection?: (connected: boolean) => void;
+  readonly #retryMs: number;
 
   constructor(
     private readonly url: string,
-    private readonly retryMs = 3000,
+    opts?: {
+      /** Called with a doc's DURABLE heads when the cloud acks an R2-persist (R4). */
+      onSaved?: (documentId: string, heads: string[]) => void;
+      /** Called when the sync socket connects (true) / drops (false). */
+      onConnection?: (connected: boolean) => void;
+      retryMs?: number;
+    },
   ) {
     super();
+    this.#onSaved = opts?.onSaved;
+    this.#onConnection = opts?.onConnection;
+    this.#retryMs = opts?.retryMs ?? 3000;
     this.#readyPromise = new Promise((resolve) => (this.#resolveReady = resolve));
   }
 
@@ -68,7 +82,10 @@ export class BrowserWSClientAdapter extends NetworkAdapter {
     const socket = new WebSocket(this.url);
     socket.binaryType = "arraybuffer";
     this.#socket = socket;
-    socket.addEventListener("open", () => this.#join());
+    socket.addEventListener("open", () => {
+      this.#onConnection?.(true);
+      this.#join();
+    });
     socket.addEventListener("message", (e) => this.#receive(e.data as ArrayBuffer));
     socket.addEventListener("close", () => this.#onClose());
     socket.addEventListener("error", () => socket.close());
@@ -103,6 +120,9 @@ export class BrowserWSClientAdapter extends NetworkAdapter {
         peerId: msg.senderId,
         peerMetadata: msg.peerMetadata ?? ({} as PeerMetadata),
       });
+    } else if (msg.type === "saved") {
+      // The cloud durably persisted up to these heads (R4) — the "Saved" ack.
+      this.#onSaved?.(msg.documentId as string, (msg.heads ?? []) as string[]);
     } else if (msg.type === "error") {
       // Server-side protocol error; surface for debugging, don't crash sync.
       console.warn("[sync] server error:", msg.message);
@@ -125,11 +145,12 @@ export class BrowserWSClientAdapter extends NetworkAdapter {
   }
 
   #onClose(): void {
+    this.#onConnection?.(false);
     for (const peerId of this.#remotePeers) {
       this.emit("peer-disconnected", { peerId });
     }
     this.#remotePeers.clear();
-    if (!this.#closed) setTimeout(() => this.#open(), this.retryMs);
+    if (!this.#closed) setTimeout(() => this.#open(), this.#retryMs);
   }
 
   disconnect(): void {
