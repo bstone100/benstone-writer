@@ -4,6 +4,11 @@
 > **Status: v0.1 working draft.** This document is the spec we refine until it can be
 > implemented completely and correctly in a single pass. Open questions are marked **⚠️**
 > inline and collected in §17. Nothing here is sacred — challenge any choice.
+>
+> **⚠️ Round two supersedes parts of this document.** This is round one's master
+> (the engine, which stands). The **surface (UX), auth, and version/publish model**
+> are revised in **[`ROUND-2.md`](./ROUND-2.md)** — see its §3.4 supersession table.
+> Where the two conflict, **`ROUND-2.md` wins.** Load both each session.
 
 ---
 
