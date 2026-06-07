@@ -5,7 +5,8 @@
   Google Docs. A crown marks the LIVE version (what the public sees); a vN badge
   marks a released version; an optional name labels it.
 
-  Reads only the LOCAL change DAG (history/documentAt). The imperative actions are
+  Reads only the LOCAL change DAG (history) + the shared schema renderer
+  (renderForPublish) for the preview. The imperative actions are
   the parent's callbacks: the server owns the live pointer and the monotonic vN
   counter (a CRDT can't do a strict counter), so this panel never calls it — it
   raises onMakeLive/onRestore/onName and the parent (which holds the RPC client)
@@ -16,9 +17,10 @@
 -->
 <script lang="ts">
   import { untrack } from "svelte";
-  import { history, documentAt, type HistoryEntry, type Snapshot } from "@bw/data";
+  import { history, type HistoryEntry } from "@bw/data";
   import type { VersionMeta } from "@bw/schema";
   import Menu, { type MenuItem } from "./Menu.svelte";
+  import { renderForPublish } from "./render";
   import Prose from "./Prose.svelte";
 
   let {
@@ -50,12 +52,16 @@
   const metaByKey = $derived(new Map(versions.map((v) => [keyOf(v.heads), v] as const)));
   const isLive = (s: HistoryEntry) => liveKey !== null && keyOf(s.heads) === liveKey;
 
-  // Selection drives the read-only preview of the chosen version.
+  // Selection drives the read-only preview of the chosen version. The preview is
+  // rendered by the SAME schema-based renderer the published page uses
+  // (renderForPublish), so a version previews EXACTLY as it will read once live —
+  // one renderer, not a second plain-text approximation.
   let selected = $state<HistoryEntry | null>(null);
-  let snapshot = $state<Snapshot | null>(null);
+  let preview = $state<{ title: string; html: string } | null>(null);
   async function select(entry: HistoryEntry) {
     selected = entry;
-    snapshot = await documentAt(id, entry.heads);
+    const p = await renderForPublish(id, entry.heads);
+    preview = { title: p.title, html: p.html };
   }
   // Open on the latest version.
   $effect(() => {
@@ -126,14 +132,12 @@
   </aside>
 
   <section class="stage">
-    {#if snapshot}
+    {#if preview}
       <div class="preview">
         <Prose>
-          <h1 class="ptitle">{snapshot.title || "Untitled"}</h1>
-          {#each snapshot.paragraphs as p, i (i)}
-            <p>{p}</p>
-          {/each}
-          {#if snapshot.paragraphs.length === 0}<p class="faint">— empty —</p>{/if}
+          <h1 class="ptitle">{preview.title || "Untitled"}</h1>
+          <!-- Safe by construction: DOMSerializer over our own schema (same as Reader.svelte). -->
+          {@html preview.html}
         </Prose>
       </div>
       {#if naming}
@@ -310,9 +314,6 @@
     line-height: var(--leading-tight);
     letter-spacing: -0.018em;
     margin: 0 0 var(--space-5);
-  }
-  .faint {
-    color: var(--color-ink-faint);
   }
   .status,
   .namebar {

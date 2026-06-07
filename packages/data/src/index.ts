@@ -280,40 +280,6 @@ export function history(id: string): Readable<HistoryEntry[]> {
   });
 }
 
-export interface Snapshot {
-  title: string;
-  paragraphs: string[];
-}
-
-function spansToParagraphs(spans: { type: string; value: unknown }[]): string[] {
-  const paras: string[] = [];
-  let cur = "";
-  let open = false;
-  for (const s of spans) {
-    if (s.type === "block") {
-      if (open) paras.push(cur);
-      cur = "";
-      open = true;
-    } else if (s.type === "text") {
-      cur += String(s.value);
-    }
-  }
-  if (open) paras.push(cur);
-  return paras;
-}
-
-/** documentAt(id, heads) — a read-only snapshot of the document at a past point. */
-export function documentAt(id: string, heads: string[]): Promise<Snapshot> {
-  return handleFor(id).then((h) => {
-    const view = A.view(amDoc(h.doc()), heads) as unknown as Document & { body?: unknown };
-    const spans =
-      view.body !== undefined
-        ? (A.spans(view as unknown as AmDoc, ["body"]) as { type: string; value: unknown }[])
-        : [];
-    return { title: view.title ?? "", paragraphs: spansToParagraphs(spans) };
-  });
-}
-
 export interface PublishSource {
   title: string;
   /** Automerge rich-text spans of the body, for static-HTML rendering (§4). */

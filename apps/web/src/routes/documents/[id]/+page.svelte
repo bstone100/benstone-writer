@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { invalidateAll, goto } from "$app/navigation";
   import { Reader, Button, Text } from "@bw/ui/reader";
   import TopBar from "$lib/TopBar.svelte";
@@ -17,6 +17,9 @@
   // the load already proved the owner — so we drop straight into the editor. The
   // editor/CRDT bundle is the ONLY place it loads, and only client-side.
   let editing = $state(false);
+  // Brief: the editor is torn down while a restore rewrites the draft wholesale, so
+  // no live ProseMirror view mis-applies the patch (R5; see restore()).
+  let reloading = $state(false);
   let island = $state<typeof import("@bw/ui") | null>(null);
   const EditorComp = $derived(island?.Editor);
   const HistoryComp = $derived(island?.History);
@@ -86,11 +89,17 @@
     void invalidateAll(); // the public projection changed
   }
   // ⋮ Restore to draft — roll this version's content forward to HEAD (one linear
-  // change; §3.3). The draft becomes that version; drop into the editor to see it.
+  // change; §3.3). The draft becomes that version. The data lands correctly, but a
+  // LIVE ProseMirror view mis-replays the wholesale-replace patch (garbles the view
+  // only — verified). So tear the editor down first, mutate, then re-mount it fresh
+  // on the restored draft.
   async function restore(heads: string[]) {
+    showHistory = false;
+    reloading = true;
+    await tick(); // editor unmounts before the doc is rewritten
     const { restoreToHead } = await import("@bw/data");
     await restoreToHead(data.id, heads);
-    showHistory = false;
+    reloading = false;
     if (!editing) await startEdit();
   }
   // ⋮ Name version — attach a human label (distinct from the automatic vN).
@@ -119,7 +128,9 @@
   {/if}
 </TopBar>
 
-{#if editing && EditorComp}
+{#if reloading}
+  <!-- editor torn down for a restore swap; re-mounts fresh once the draft is rewritten -->
+{:else if editing && EditorComp}
   <EditorComp id={data.id} />
 {:else if data.post}
   <Reader post={data.post} />
