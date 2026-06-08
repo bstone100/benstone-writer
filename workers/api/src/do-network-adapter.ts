@@ -45,9 +45,6 @@ export class DONetworkAdapter extends NetworkAdapter {
       throw new Error("Tried to send a zero-length message");
     }
     const ws = this.sockets.get(message.targetId as string);
-    // TEMP(v0.1.1 diag): is the in-DO Repo's response reaching a live socket?
-    console.log("[do] send", (message as { type?: string }).type, "→",
-      String(message.targetId).slice(0, 14), "hasWs=", !!ws, "of", this.sockets.size);
     if (!ws) return; // peer not connected to this DO
     // send() accepts an ArrayBufferView and transmits exactly its byteLength,
     // so pass the cborg Uint8Array directly (its buffer may be over-allocated).
