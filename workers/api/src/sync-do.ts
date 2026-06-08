@@ -49,6 +49,7 @@ export class SyncDocDO extends DurableObject<Env> {
 
   private boot(): void {
     if (this.booted) return;
+    console.log("[do] boot", this.ctx.id.toString().slice(0, 8));
 
     // peerId for now derives from the DO instance; a doc-encoded peerId (for
     // precise multi-doc client sharePolicy) lands with multi-doc support.
@@ -64,10 +65,12 @@ export class SyncDocDO extends DurableObject<Env> {
     });
     this.repo.storageSubsystem?.on("doc-saved", (e) => {
       const ev = e as unknown as { documentId: string; savedHeads: string[] };
+      console.log("[do] doc-saved", ev.documentId.slice(0, 8), "heads=", ev.savedHeads?.length);
       this.pendingHeads.set(ev.documentId, ev.savedHeads);
     });
     this.repo.storageSubsystem?.on("doc-compacted", (e) => {
       const ev = e as unknown as { documentId: string; savedHeads: string[] };
+      console.log("[do] doc-compacted", ev.documentId.slice(0, 8), "heads=", ev.savedHeads?.length);
       this.pendingHeads.set(ev.documentId, ev.savedHeads);
     });
     // NB: we deliberately do NOT call repo.find() from a storage event (e.g.
@@ -76,12 +79,15 @@ export class SyncDocDO extends DurableObject<Env> {
 
     // Re-announce every surviving socket as a peer so the fresh Repo can
     // proactively sync each connected client (not just whoever woke us).
+    let reannounced = 0;
     for (const ws of this.ctx.getWebSockets()) {
       const state = ws.deserializeAttachment() as SocketState | null;
       if (state?.joined && state.peerId) {
         this.net.announcePeer(state.peerId, ws, state.peerMetadata);
+        reannounced++;
       }
     }
+    console.log("[do] boot reannounced", reannounced, "sockets serverPeer=", String(this.net.peerId).slice(0, 16));
 
     this.booted = true;
   }
@@ -89,6 +95,7 @@ export class SyncDocDO extends DurableObject<Env> {
   /** A durable R2 write for `documentId` just completed → ack its now-safe heads (R4). */
   private ackPersisted(documentId: string): void {
     const heads = this.pendingHeads.get(documentId);
+    console.log("[do] ackPersisted", documentId.slice(0, 8), "heads=", heads?.length, "sockets=", this.net.sockets.size);
     if (heads) this.net.announceSaved(documentId, heads);
   }
 
@@ -98,9 +105,13 @@ export class SyncDocDO extends DurableObject<Env> {
     this.known.add(documentId);
     // Instantiate the handle so the in-DO Repo syncs this doc + auto-persists it to
     // R2 (its normal debounced save). Ongoing "saved" acks flow from onPersist.
-    void Promise.resolve(this.repo!.find(documentId as never)).catch(() => {
-      this.known.delete(documentId);
-    });
+    console.log("[do] ensureDoc find-start", documentId.slice(0, 8));
+    void Promise.resolve(this.repo!.find(documentId as never))
+      .then(() => console.log("[do] find-ok", documentId.slice(0, 8)))
+      .catch((err) => {
+        console.log("[do] find-FAIL", documentId.slice(0, 8), String(err).slice(0, 80));
+        this.known.delete(documentId);
+      });
   }
 
   /**
@@ -155,6 +166,8 @@ export class SyncDocDO extends DurableObject<Env> {
     }
     const msg = decode(message);
     const state = (ws.deserializeAttachment() as SocketState | null) ?? {};
+    console.log("[do] recv", msg.type, "joined=", !!state.joined, "doc=", String(msg.documentId ?? "").slice(0, 8),
+      "target=", String((msg as { targetId?: string }).targetId ?? "").slice(0, 16));
 
     if (!state.joined) {
       if (!isJoin(msg)) return; // ignore anything before a valid join
