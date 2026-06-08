@@ -9,12 +9,12 @@
   // SvelteKit app + the DOs, so the whole thing runs with nodejs_compat.
   "compatibility_flags": ["nodejs_compat"],
 
-  // benstone.me + www are served by this Worker via routes on the zone's existing
-  // (proxied) DNS. Custom Domains would be cleaner but need DNS-record edits; the
-  // deploy token can manage routes, so future deploys keep the site routed.
+  // benstone.me + www are Worker Custom Domains: the Worker is the origin and
+  // Cloudflare manages the DNS record + edge cert (cleaner than routes on a dangling
+  // record). The deploy token has DNS:Edit, so deploys keep these attached.
   "routes": [
-    { "pattern": "benstone.me/*", "zone_name": "benstone.me" },
-    { "pattern": "www.benstone.me/*", "zone_name": "benstone.me" }
+    { "pattern": "benstone.me", "custom_domain": true },
+    { "pattern": "www.benstone.me", "custom_domain": true }
   ],
 
   // adapter-cloudflare (Workers + Static Assets) requires BOTH of these when
