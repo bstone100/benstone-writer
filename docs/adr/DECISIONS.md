@@ -2,11 +2,12 @@
 
 The concrete architecture decisions embodied in the codebase: the technologies, services, and structural patterns that were actually chosen and built — and the alternatives they beat. Grounded in the dependency manifests, the Cloudflare bindings, and the 66-commit history, **not** in what we talked about. Requirements and principles ("be real-time," "stay DRY") are *context* here, never entries — the entry is the concrete mechanism chosen to satisfy them. Plans not yet built are not decisions and live at the bottom under *Pending*.
 
-**Honest attribution.** Ben set most of the *requirements* (the product shape); Claude made most of the *technology* choices and Ben waved them through without weighing them. Genuine forks Ben decided are rare and marked. `decided:` reads honestly:
+**Honest attribution.** Ben set most of the *requirements* (the product shape); Claude made most of the *technology* choices and Ben waved them through. `decided:` reads honestly:
 - **Ben-set** — Ben specified the requirement this satisfies.
-- **Ben-picked** — Claude presented a real fork; Ben chose.
 - **Ben-override** — Ben chose against Claude's recommendation.
 - **Claude / waved through** — Claude decided; Ben didn't engage with the tradeoff.
+
+**Framing vs picking.** When Claude presented a shortlist, the *framing* — which options were even on the table, and the paradigm beneath them — was usually the real decision, and that was Claude's; the human's pick within it was trust, not agency. The most dangerous decisions are the ones framed *implicitly*: a whole paradigm smuggled in as the unquestioned substrate of a smaller choice that *was* surfaced (see ADR-0006 — "local-first" was never decided, it rode in with the CRDT). So where a "choice" was trapped inside a frame Ben couldn't evaluate, the entry says so, rather than crediting him with a decision he didn't really make.
 
 **Lineage.** benstone-writer is a Svelte+Cloudflare rebuild of an abandoned Astro predecessor (benstone-site); this record covers the current system. The data/sync layer marked ⚠ is slated for reversal by the in-progress cloud-authoritative rewrite (see *Pending*).
 
@@ -43,11 +44,11 @@ The concrete architecture decisions embodied in the codebase: the technologies, 
 **Alternatives.** Vite 8 (rolldown) — the current major.
 **Why.** Vite 8's rolldown emits a `createRequire(import.meta.url)` CJS-interop shim that workerd cannot evaluate; proven by isolating a vanilla adapter build that crashed identically. Vite 7 (Rollup) has no such shim.
 
-## ADR-0006 — Automerge (CRDT) as the document substrate ⚠
-`⚠ slated for reversal` · decided: **Ben-picked** (from a two-option shortlist)
-**What.** `@automerge/automerge` + `automerge-repo` + the IndexedDB storage adapter; documents are CRDTs synced peer-to-server. (`feat(data)`, 2026-06-05.)
-**Alternatives.** Jazz (the other finalist Claude presented — unified DX, but alpha, no Cloudflare adapter, weaker branching); Yjs / Zero / ElectricSQL / Triplit etc. surveyed and dropped earlier.
-**Why.** Branchable, content-addressed history was the then-signature feature, and Automerge expresses it directly. **This is the one genuinely Ben-decided technical fork** — Claude narrowed it to Automerge vs Jazz and Ben called it ("Automerge sounds right"). It also imported a *local-first* worldview that proved wrong for an online-first blog — hence the reversal (see *Pending*).
+## ADR-0006 — Local-first (CRDT) as the sync paradigm; Automerge as the substrate ⚠
+`⚠ being reversed` · decided: **Claude-framed (and unexamined); Ben trust-picked the substrate**
+**What.** The entire sync model was built local-first — the browser's Automerge CRDT is the source of truth, the server a sync peer. Substrate: `@automerge/automerge` + `automerge-repo` + the IndexedDB adapter. (`feat(data)`, 2026-06-05.)
+**The choice as presented.** "Which local-first CRDT — Automerge or Jazz?" (Yjs / Zero / ElectricSQL etc. surveyed and dropped earlier.) Both options were local-first; the real alternative — a **cloud-authoritative server, no CRDT** — was never put on the table.
+**What actually happened (the honest version).** Claude framed the decision as a CRDT-library pick and offered two; Ben chose Automerge — but this was **trust in the frame, not an architecture decision**. He didn't know the options or the field and was relying on Claude to have framed a legitimate choice. The frame was wrong: *local-first itself* was the load-bearing call, and it was never deliberately made — it rode in unexamined with the CRDT framing (Automerge comes from the group that coined "local-first"). A false frame means every option inside it is wrong, which is why the whole layer is being torn out (see *Pending*). This is the record's clearest example of the framing-vs-picking trap.
 
 ## ADR-0007 — cborg as the wire codec, both ends
 `in use` · decided: **Claude / forced by runtime**
