@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { FeedEvent } from "@bw/schema";
+import { fanOut } from "./feed-fanout";
 
 /**
  * ReaderFeedDO — the SSE fan-out for the public reader (§7 #5, §14.1.E). A
@@ -41,12 +42,6 @@ export class ReaderFeedDO extends DurableObject {
   /** Fan one event out to every open reader (RPC from the publish handler). */
   async notify(event: FeedEvent): Promise<void> {
     const frame = this.encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-    for (const w of [...this.writers]) {
-      try {
-        await w.write(frame);
-      } catch {
-        this.writers.delete(w); // dead stream — drop it
-      }
-    }
+    fanOut(this.writers, frame);
   }
 }
