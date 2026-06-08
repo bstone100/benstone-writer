@@ -112,13 +112,14 @@ export async function getVersions(
     .first<{ live_heads: string | null }>();
   const liveHeads = live?.live_heads ? (JSON.parse(live.live_heads) as string[]) : null;
   const { results } = await db
-    .prepare("SELECT heads, version, name FROM doc_versions WHERE doc_id = ? ORDER BY created_at DESC")
+    .prepare("SELECT heads, version, name, created_at FROM doc_versions WHERE doc_id = ? ORDER BY created_at DESC")
     .bind(id)
-    .all<{ heads: string; version: number | null; name: string | null }>();
+    .all<{ heads: string; version: number | null; name: string | null; created_at: number }>();
   const versions: VersionMeta[] = results.map((r) => ({
     heads: JSON.parse(r.heads) as string[],
     version: r.version,
     name: r.name,
+    createdAt: r.created_at,
   }));
   return { liveHeads, versions };
 }

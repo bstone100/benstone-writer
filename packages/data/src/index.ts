@@ -4,7 +4,7 @@ import * as A from "@automerge/automerge";
 import { BrowserWSClientAdapter } from "./ws-client-adapter";
 import { readable, type Readable } from "svelte/store";
 import { parsePath, type Document, type Path } from "@bw/schema";
-import { groupChanges, type HistoryEntry } from "./history";
+import { groupChanges, mergeTimeline, type HistoryEntry, type TimelineRow } from "./history";
 
 /**
  * Cloud sync wiring (§8.1). A document syncs to its Durable Object only once
@@ -251,8 +251,9 @@ export function getHandle(id: string): Promise<DocHandle<Document>> {
 type AmDoc = A.Doc<Document>;
 const amDoc = (d: Document): AmDoc => d as unknown as AmDoc;
 
-// The session-folding logic + HistoryEntry live in ./history (pure, unit-tested).
-export type { HistoryEntry };
+// The session-folding logic + timeline merge live in ./history (pure, unit-tested).
+export type { HistoryEntry, TimelineRow };
+export { mergeTimeline };
 
 /** Fold the fine-grained change DAG into coarse edit-sessions (§8). */
 function sessionsOf(doc: Document): HistoryEntry[] {

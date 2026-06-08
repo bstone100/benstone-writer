@@ -17,7 +17,7 @@
 -->
 <script lang="ts">
   import { untrack } from "svelte";
-  import { history, type HistoryEntry } from "@bw/data";
+  import { history, mergeTimeline, type TimelineRow } from "@bw/data";
   import type { VersionMeta } from "@bw/schema";
   import Menu, { type MenuItem } from "./Menu.svelte";
   import { renderForPublish } from "./render";
@@ -41,40 +41,43 @@
     onclose?: () => void;
   } = $props();
 
-  // Mounted per-document; id is stable for the panel's lifetime.
+  // Mounted per-document; id is stable for the panel's lifetime. history() is the
+  // local edit-session DAG (oldest → newest); mergeTimeline folds in the server's
+  // version metadata so the live/named/released versions ALWAYS have a row — even when
+  // their heads no longer coincide with a local session tip. Newest first.
   const entries = untrack(() => history(id));
-  // Newest first for reading; the DAG is oldest → newest.
-  const sessions = $derived([...$entries].reverse());
-
+  const rows = $derived(mergeTimeline([...$entries], versions, liveHeads));
   // A version is a SET of heads — compare order-independently.
   const keyOf = (heads: string[]) => [...heads].sort().join("\n");
-  const liveKey = $derived(liveHeads ? keyOf(liveHeads) : null);
-  const metaByKey = $derived(new Map(versions.map((v) => [keyOf(v.heads), v] as const)));
-  const isLive = (s: HistoryEntry) => liveKey !== null && keyOf(s.heads) === liveKey;
 
   // Selection drives the read-only preview of the chosen version. The preview is
   // rendered by the SAME schema-based renderer the published page uses
   // (renderForPublish), so a version previews EXACTLY as it will read once live —
   // one renderer, not a second plain-text approximation.
-  let selected = $state<HistoryEntry | null>(null);
+  // Track selection by heads-key so the selected row stays correct when the list
+  // recomputes (e.g. after Make live refreshes the server versions).
+  let selectedKey = $state<string | null>(null);
   let preview = $state<{ title: string; html: string } | null>(null);
-  async function select(entry: HistoryEntry) {
-    selected = entry;
-    const p = await renderForPublish(id, entry.heads);
+  const selected = $derived(
+    selectedKey ? (rows.find((r) => keyOf(r.heads) === selectedKey) ?? null) : null,
+  );
+  async function select(row: TimelineRow) {
+    selectedKey = keyOf(row.heads);
+    const p = await renderForPublish(id, row.heads);
     preview = { title: p.title, html: p.html };
   }
   // Open on the latest version.
   $effect(() => {
-    if (!selected && sessions.length) void select(sessions[0]);
+    if (!selectedKey && rows.length) void select(rows[0]);
   });
 
   // "Name version" — a clean inline field in the footer (no browser prompt).
-  let naming = $state<HistoryEntry | null>(null);
+  let naming = $state<TimelineRow | null>(null);
   let nameDraft = $state("");
-  function beginName(s: HistoryEntry) {
-    void select(s);
-    naming = s;
-    nameDraft = metaByKey.get(keyOf(s.heads))?.name ?? "";
+  function beginName(r: TimelineRow) {
+    void select(r);
+    naming = r;
+    nameDraft = r.name ?? "";
   }
   function saveName() {
     if (naming) onName?.(naming.heads, nameDraft.trim());
@@ -84,14 +87,13 @@
     node.focus();
   }
 
-  // The ⋮ menu for one history item. Make live is hidden on the live version;
-  // Restore is hidden on the current draft (restoring HEAD to itself is a no-op).
-  function itemsFor(s: HistoryEntry, head: boolean): MenuItem[] {
+  // The ⋮ menu for one row. Make live is hidden on the live version; Restore is hidden
+  // on the current draft (restoring HEAD to itself is a no-op).
+  function itemsFor(r: TimelineRow): MenuItem[] {
     const items: MenuItem[] = [];
-    if (!isLive(s)) items.push({ label: "Make live", run: () => onMakeLive?.(s.heads) });
-    if (!head) items.push({ label: "Restore to draft", run: () => onRestore?.(s.heads) });
-    const named = metaByKey.get(keyOf(s.heads))?.name;
-    items.push({ label: named ? "Rename version" : "Name version", run: () => beginName(s) });
+    if (!r.live) items.push({ label: "Make live", run: () => onMakeLive?.(r.heads) });
+    if (!r.current) items.push({ label: "Restore to draft", run: () => onRestore?.(r.heads) });
+    items.push({ label: r.name ? "Rename version" : "Name version", run: () => beginName(r) });
     return items;
   }
 
@@ -105,25 +107,24 @@
       <h2>Version history</h2>
       <button class="done" onclick={() => onclose?.()}>Done</button>
     </header>
-    {#if sessions.length === 0}
+    {#if rows.length === 0}
       <p class="hint">No history yet — start writing.</p>
     {:else}
       <ol>
-        {#each sessions as s, i (s.heads[0])}
-          {@const meta = metaByKey.get(keyOf(s.heads))}
-          <li class="row" class:active={selected?.heads[0] === s.heads[0]}>
-            <button class="entry" onclick={() => select(s)}>
-              <span class="dot" class:live={isLive(s)}></span>
-              <span class="when">{fmt(s.time)}</span>
+        {#each rows as r (keyOf(r.heads))}
+          <li class="row" class:active={selected != null && keyOf(selected.heads) === keyOf(r.heads)}>
+            <button class="entry" onclick={() => select(r)}>
+              <span class="dot" class:live={r.live}></span>
+              <span class="when">{fmt(r.time)}</span>
               <span class="meta">
-                {#if meta?.name}{meta.name}{:else if i === 0}Current draft{:else}{s.changeCount}
-                  edit{s.changeCount === 1 ? "" : "s"}{/if}
+                {#if r.name}{r.name}{:else if r.current}Current draft{:else if r.changeCount != null}{r.changeCount}
+                  edit{r.changeCount === 1 ? "" : "s"}{:else}Released version{/if}
               </span>
             </button>
             <div class="badges">
-              {#if isLive(s)}<span class="crown" role="img" aria-label="Live version">👑</span>{/if}
-              {#if meta?.version != null}<span class="vtag">v{meta.version}</span>{/if}
-              <Menu items={itemsFor(s, i === 0)} label="Version actions" />
+              {#if r.live}<span class="crown" role="img" aria-label="Live version">👑</span>{/if}
+              {#if r.version != null}<span class="vtag">v{r.version}</span>{/if}
+              <Menu items={itemsFor(r)} label="Version actions" />
             </div>
           </li>
         {/each}
@@ -157,7 +158,7 @@
         </footer>
       {:else}
         <footer class="status">
-          {#if selected && isLive(selected)}
+          {#if selected && selected.live}
             <span class="reading"><span class="crown" role="img" aria-label="Live">👑</span> This version is live</span>
           {:else}
             <span class="reading">Read-only preview — use the ⋮ menu to make live or restore</span>

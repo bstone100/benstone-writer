@@ -67,7 +67,7 @@ describe("RPC contract — define-once, zod-parsed at ingress (§14.1.B / R5)", 
     expect(RpcContract.nameVersion.input.safeParse({ id: "d1", heads: ["h1"], name: "v1" }).success).toBe(true);
     expect(RpcContract.versions.input.safeParse({ id: "d1" }).success).toBe(true);
     expect(
-      RpcContract.versions.output.safeParse({ liveHeads: ["h1"], versions: [{ heads: ["h1"], version: 1, name: null }] })
+      RpcContract.versions.output.safeParse({ liveHeads: ["h1"], versions: [{ heads: ["h1"], version: 1, name: null, createdAt: 1 }] })
         .success,
     ).toBe(true);
     expect(RpcContract.versions.output.safeParse({ liveHeads: null, versions: [] }).success).toBe(true);

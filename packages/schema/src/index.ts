@@ -52,6 +52,8 @@ export const VersionMetaSchema = z.object({
   version: z.number().nullable(),
   /** Optional human label (the "Name version" action). */
   name: z.string().nullable(),
+  /** When this version was released/named (doc_versions.created_at) — orders it in the timeline even when its heads no longer match a local edit-session. */
+  createdAt: z.number(),
 });
 export type VersionMeta = z.infer<typeof VersionMetaSchema>;
 
